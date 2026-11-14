@@ -302,7 +302,7 @@ function Dashboard() {
       </div>
       <a className="more" href="#/tokens">すべて見る</a>
       <p className="note">
-        表示はすべて外部 API とオンチェーンの実測値です。仮想売買・収益予測は未実装で、本画面は投資判断の根拠になりません。
+        表示はすべて外部 API とオンチェーンの実測値です。収益予測は未実装で、本画面は投資判断の根拠になりません。
       </p>
     </>
   );
@@ -550,6 +550,159 @@ function TokenDetail({ mint }: { mint: string }) {
   );
 }
 
+interface PaperStrategy {
+  id: string;
+  label: string;
+  closed_trades: number;
+  win_rate: number | null;
+  avg_win_usd: number | null;
+  avg_loss_usd: number | null;
+  expectancy_usd: number | null;
+  total_pnl_usd: number;
+  max_drawdown_usd: number;
+  profit_factor: number | null;
+  fees_usd: number;
+  slippage_usd: number;
+  unsellable: number;
+  unfilled_orders: number;
+  pending_orders: number;
+  open_positions: number;
+  open_cost_usd: number;
+  sample_sufficient: boolean;
+}
+interface PaperSummary {
+  strategies: PaperStrategy[];
+  config: Record<string, number | string[]>;
+  min_sample: number;
+  generated_at: number;
+}
+interface PaperPos {
+  id: number;
+  mint: string;
+  strategy_id: string;
+  status: string;
+  opened_at: number;
+  closed_at: number | null;
+  quantity: number;
+  cost_usd: number;
+  entry_price_usd: number;
+  proceeds_usd: number | null;
+  realized_pnl_usd: number | null;
+  exit_reason: string | null;
+  symbol: string | null;
+  last_price_usd: number | null;
+}
+const EXIT_LABEL: Record<string, string> = { take_profit: '利確', stop_loss: '損切り', max_hold: '保有期限', unsellable: '売却不能（全損扱い）' };
+const fmtPnl = (v: number | null | undefined) => (v === null || v === undefined ? NA : `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`);
+function Pnl({ v }: { v: number | null | undefined }) {
+  if (v === null || v === undefined) return <span className="na">{NA}</span>;
+  return <span className={v >= 0 ? 'up' : 'down'}>{fmtPnl(v)}</span>;
+}
+
+function Paper() {
+  const sum = useApi<PaperSummary>('/api/paper/summary', 60_000);
+  const [tab, setTab] = useState<'open' | 'closed'>('open');
+  const pos = useApi<{ positions: PaperPos[] }>(`/api/paper/positions?status=${tab}`, 60_000);
+  const d = sum.data;
+  const label = (id: string) => d?.strategies.find((s) => s.id === id)?.label ?? id;
+  const c = d?.config;
+  return (
+    <>
+      <h1>仮想売買</h1>
+      <Stamp at={d?.generated_at} loading={sum.loading} onReload={() => { void sum.reload(); void pos.reload(); }} />
+      <Err msg={sum.error} />
+      <div className="alert">
+        実資金は使っていません。成績は仮想の約定モデルによる試算で、実際の取引結果とは異なります。利益や勝率を保証するものではありません。
+      </div>
+      {d?.strategies.map((s) => (
+        <section className="card" key={s.id}>
+          <div className="label">{s.label}</div>
+          <div className="big">{s.closed_trades ? <Pnl v={s.total_pnl_usd} /> : <span className="na">—</span>}</div>
+          <div className="sub">決済済み {fmtInt(s.closed_trades)} 件の累積損益（コスト控除後）</div>
+          {!s.sample_sufficient && (
+            <p className="note warn">サンプル不足（{d.min_sample} 件未満）。統計的な優位性は判断できません。</p>
+          )}
+          <table className="kv">
+            <tbody>
+              <tr><th>勝率</th><td><Val v={s.win_rate === null ? NA : `${(s.win_rate * 100).toFixed(1)}%`} /></td></tr>
+              <tr><th>期待値（1 取引あたり）</th><td><Pnl v={s.expectancy_usd} /></td></tr>
+              <tr><th>平均利益 / 平均損失</th><td><Pnl v={s.avg_win_usd} /> / <Pnl v={s.avg_loss_usd} /></td></tr>
+              <tr><th>プロフィットファクター</th><td><Val v={s.profit_factor === null ? NA : s.profit_factor.toFixed(2)} /></td></tr>
+              <tr><th>最大ドローダウン</th><td>{s.closed_trades ? `$${s.max_drawdown_usd.toFixed(2)}` : <span className="na">{NA}</span>}</td></tr>
+              <tr><th>手数料総額</th><td>${s.fees_usd.toFixed(2)}</td></tr>
+              <tr><th>スリッページ損失</th><td>${s.slippage_usd.toFixed(2)}</td></tr>
+              <tr><th>売却不能</th><td className={s.unsellable ? 'warn' : undefined}>{fmtInt(s.unsellable)} 件</td></tr>
+              <tr><th>未約定の注文</th><td>{fmtInt(s.unfilled_orders)} 件</td></tr>
+              <tr><th>保有中 / 約定待ち</th><td>{fmtInt(s.open_positions)} 件（${s.open_cost_usd.toFixed(0)}） / {fmtInt(s.pending_orders)} 件</td></tr>
+            </tbody>
+          </table>
+        </section>
+      ))}
+
+      <h2>ポートフォリオ・履歴</h2>
+      <div className="actions">
+        <button className={`btn ${tab === 'open' ? 'on' : ''}`} onClick={() => setTab('open')}>保有中</button>
+        <button className={`btn ${tab === 'closed' ? 'on' : ''}`} onClick={() => setTab('closed')}>決済済み</button>
+      </div>
+      <Err msg={pos.error} />
+      <div className="list">
+        {pos.data?.positions.map((p) => (
+          <a className="row" key={p.id} href={`#/token/${p.mint}`}>
+            <div className="row-main">
+              <div className="row-title"><strong>{p.symbol ?? shortAddr(p.mint)}</strong></div>
+              <div className="row-sub">
+                <span className="chip">{label(p.strategy_id)}</span>
+                <span>取得 {fmtTime(p.opened_at)}</span>
+                {p.closed_at && <span>決済 {fmtTime(p.closed_at)}</span>}
+              </div>
+            </div>
+            <div className="row-side">
+              {p.status === 'open' ? (
+                <>
+                  <div>${p.cost_usd.toFixed(2)}</div>
+                  <div className="row-sub">参考評価 <Val v={p.last_price_usd === null ? NA : `$${(p.quantity * p.last_price_usd).toFixed(2)}`} /></div>
+                </>
+              ) : (
+                <>
+                  <div><Pnl v={p.realized_pnl_usd} /></div>
+                  <div className={`row-sub ${p.status === 'unsellable' ? 'warn' : ''}`}>{EXIT_LABEL[p.exit_reason ?? ''] ?? p.exit_reason}</div>
+                </>
+              )}
+            </div>
+          </a>
+        ))}
+        {pos.data && pos.data.positions.length === 0 && <p className="empty">{tab === 'open' ? '保有中の仮想ポジションはありません。' : '決済済みの取引はまだありません。'}</p>}
+      </div>
+      {tab === 'open' && <p className="note">参考評価は最後に観測した価格での単純換算で、手数料・価格影響・売却可否を含みません。</p>}
+
+      {c && (
+        <section className="card">
+          <div className="label">売買条件（固定値）</div>
+          <table className="kv">
+            <tbody>
+              <tr><th>1 回の仮想投資額</th><td>${String(c.orderUsd)}</td></tr>
+              <tr><th>エントリー条件</th><td>リスク判定 LOW/MEDIUM、流動性 ${fmtInt(Number(c.minLiquidityUsd))} 以上</td></tr>
+              <tr><th>利確 / 損切り</th><td>+{Number(c.takeProfit) * 100}% / -{Number(c.stopLoss) * 100}%</td></tr>
+              <tr><th>最大保有時間</th><td>検出から 24 時間</td></tr>
+              <tr><th>最大同時保有数</th><td>戦略ごとに {String(c.maxOpenPerStrategy)}</td></tr>
+              <tr><th>最大スリッページ（買い）</th><td>{Number(c.maxSlippage) * 100}%（超える分は数量を減らす）</td></tr>
+              <tr><th>取引手数料 / 優先手数料</th><td>{Number(c.feeRate) * 100}% / ${String(c.priorityFeeUsd)}</td></tr>
+              <tr><th>想定約定遅延</th><td>シグナルの次の観測時点（5 分〜18 時間後）</td></tr>
+            </tbody>
+          </table>
+          <ul className="bullets">
+            <li>シグナルは観測済みの値だけで作り、約定は必ずその後に観測した価格で評価します。</li>
+            <li>利確・損切りは条件を見た次の観測時点で決済するため、狙った水準では約定しません。</li>
+            <li>価格を観測できなければ買いは未約定、売りは持ち越し。24 時間後も売れなければ全損として記録します。</li>
+            <li>価格影響はプールを 50:50 の定積とみなした近似で、実際のプールとは異なります。</li>
+            <li>条件の変更画面は未実装です。</li>
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
 function System() {
   const { data: s, error, loading, reload } = useApi<Status>('/api/status', 60_000);
   return (
@@ -614,7 +767,7 @@ function System() {
               <li>D1 無料枠（書き込み10万行/日）を守るため、新規保存は 1 日に均等配分した少数（既定で約 1,900 銘柄/日）に制限しています。全銘柄の網羅ではなく標本です。</li>
               <li>Cloudflare 無料プランは稼働率を保証しません。定期実行が遅延・欠落することがあります。</li>
               <li>リスク判定は権限・Token-2022 拡張・保有集中のみ。開発者ウォレット、LP 状態、ウォッシュトレード等は未検査です。</li>
-              <li>通知（Web Push）、仮想売買、予測モデルは未実装です。</li>
+              <li>通知（Web Push）、予測モデルは未実装です。</li>
             </ul>
           </section>
         </>
@@ -666,9 +819,8 @@ function Settings() {
         <div className="label">未実装の画面</div>
         <ul className="bullets">
           <li>AI監視候補（スコアリングの残り: Momentum / Expected Return）</li>
-          <li>仮想売買履歴・仮想ポートフォリオ（Phase 4）</li>
           <li>収益分析・予測モデルの検証結果（Phase 5）</li>
-          <li>通知・仮想売買の条件設定（Phase 4〜6）</li>
+          <li>仮想売買の条件変更、通知（Phase 6）</li>
         </ul>
         <p className="note">実データが無い画面は、見本データで埋めずに未実装としています。</p>
       </section>
@@ -683,8 +835,9 @@ function Settings() {
 }
 
 const TABS = [
-  { href: '#/', label: 'ダッシュボード', match: (r: string) => r === '/' },
+  { href: '#/', label: 'ホーム', match: (r: string) => r === '/' },
   { href: '#/tokens', label: 'トークン', match: (r: string) => r.startsWith('/token') },
+  { href: '#/paper', label: '仮想売買', match: (r: string) => r === '/paper' },
   { href: '#/system', label: '稼働状況', match: (r: string) => r === '/system' },
   { href: '#/settings', label: '設定', match: (r: string) => r === '/settings' },
 ];
@@ -695,6 +848,7 @@ export function App() {
   let page;
   if (m) page = <TokenDetail key={m[1]} mint={m[1]} />;
   else if (route === '/tokens') page = <Tokens />;
+  else if (route === '/paper') page = <Paper />;
   else if (route === '/system') page = <System />;
   else if (route === '/settings') page = <Settings />;
   else page = <Dashboard />;

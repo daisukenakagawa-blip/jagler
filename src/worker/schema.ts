@@ -3,7 +3,7 @@
 // - migrations/0001_init.sql は `npm run gen:migration` でここから生成する
 // 時刻はすべて UTC の epoch ミリ秒 (INTEGER)。NULL は「未取得」を意味し、推測値は入れない。
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -161,6 +161,8 @@ export const SCHEMA_STATEMENTS: string[] = [
     status TEXT NOT NULL,
     reject_reason TEXT,
     saved_at INTEGER NOT NULL,
+    signal_stage INTEGER,
+    reason TEXT,
     UNIQUE(mint, strategy_id, side, signal_at)
   )`,
   `CREATE TABLE IF NOT EXISTS paper_trades (
@@ -188,6 +190,10 @@ export const SCHEMA_STATEMENTS: string[] = [
     realized_pnl_usd REAL,
     exit_reason TEXT,
     saved_at INTEGER NOT NULL,
+    quantity REAL,
+    cost_usd REAL,
+    entry_price_usd REAL,
+    proceeds_usd REAL,
     UNIQUE(mint, strategy_id, opened_at)
   )`,
   `CREATE TABLE IF NOT EXISTS strategy_results (
@@ -229,8 +235,14 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_errors_occurred ON system_errors(occurred_at)`,
 ];
 
-/** v1 → v2: 稼働中の DB に列を追加する（新規 DB では CREATE TABLE に含まれるため不要） */
+/** 稼働中の DB への列追加（v2: リスク判定、v3: 仮想売買）。新規 DB では CREATE TABLE に含まれるため失敗して無視される */
 const UPGRADE_V2 = [
+  `ALTER TABLE paper_orders ADD COLUMN signal_stage INTEGER`,
+  `ALTER TABLE paper_orders ADD COLUMN reason TEXT`,
+  `ALTER TABLE paper_positions ADD COLUMN quantity REAL`,
+  `ALTER TABLE paper_positions ADD COLUMN cost_usd REAL`,
+  `ALTER TABLE paper_positions ADD COLUMN entry_price_usd REAL`,
+  `ALTER TABLE paper_positions ADD COLUMN proceeds_usd REAL`,
   `ALTER TABLE tokens ADD COLUMN risk_level TEXT`,
   `ALTER TABLE tokens ADD COLUMN security_score REAL`,
   `ALTER TABLE tokens ADD COLUMN risk_assessed_at INTEGER`,
@@ -260,6 +272,7 @@ export async function ensureSchema(db: D1Database): Promise<void> {
       // 列が既にある（新規作成直後、または途中まで適用済み）場合は無視してよい
     }
   }
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_positions_open ON paper_positions(strategy_id) WHERE status = 'open'`).run();
   await db
     .prepare(
       `INSERT INTO schema_meta(key, value) VALUES('version', ?1)

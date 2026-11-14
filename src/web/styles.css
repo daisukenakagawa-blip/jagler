@@ -153,3 +153,6 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
 .findings .sev-high .sev { color: var(--down); }
 .findings .sev-medium .sev { color: var(--warn); }
 .filters .span2 { grid-column: span 2; }
+
+.note.warn { color: var(--warn); }
+.kv td .up, .kv td .down { white-space: nowrap; }

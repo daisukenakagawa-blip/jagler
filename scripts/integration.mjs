@@ -45,7 +45,7 @@ const mock = createServer((req, res) => {
     const mints = req.url.split('/tokens/v1/solana/')[1].split(',');
     dsRequests.push(mints);
     // 1 件目だけ応答し、2 件目は「ペアなし」（流動性消失の再現）
-    return send(mints.filter((m) => m === MINTS[0]).map((m) => ({
+    return send(mints.filter((m) => m !== MINTS[1]).map((m) => ({
       chainId: 'solana', dexId: 'pumpswap', pairAddress: addr(100), baseToken: { address: m }, quoteToken: { address: WSOL },
       priceUsd: '0.00005', txns: { m5: { buys: 1, sells: 1 }, h1: { buys: 5, sells: 4 }, h24: { buys: 5, sells: 4 } },
       volume: { m5: 10, h1: 200, h24: 200 }, liquidity: { usd: 9100 }, fdv: 50000, marketCap: 50000,
@@ -126,12 +126,22 @@ try {
   check('銘柄 B: ペアなし → 価格 null の欠損として記録', d1.snapshots.length === 2 && d1.snapshots[1].price_usd === null && d1.snapshots[1].data_quality === 'missing_not_listed', JSON.stringify(d1.snapshots));
   check('銘柄 B: 最新値は検出時のまま（捏造・上書きなし）', d1.token.last_price_usd === 0.00002 && d1.token.last_source === 'geckoterminal');
 
+  console.log('Cron 4 回目（仮想売買の約定）');
+  await fetch(`${BASE}/cdn-cgi/handler/scheduled?cron=*+*+*+*+*&time=${now + 6 * 60_000 + 2000}`);
+  await new Promise((r) => setTimeout(r, 31_000));
+  const ps = (await getJson('/api/paper/summary')).body;
+  const base = ps.strategies.find((x) => x.id === 'baseline_all');
+  check('仮想売買: HIGH の銘柄 A には注文なし、B は観測値なしで未約定、C は 5 分後の観測値で約定', base && base.unfilled_orders === 1 && base.open_positions === 1 && base.closed_trades === 0, JSON.stringify(base));
+  check('仮想売買: サンプル不足が明示される', base && base.sample_sufficient === false && ps.min_sample === 100);
+  const op = (await getJson('/api/paper/positions?status=open')).body.positions.filter((x) => x.strategy_id === 'baseline_all');
+  check('仮想売買: 建玉は銘柄 C、取得額は 50 ドル + 優先手数料、建値は観測価格より不利', op.length === 1 && op[0].mint === MINTS[2] && Math.abs(op[0].cost_usd - 50.05) < 1e-9 && op[0].entry_price_usd > 0.00005, JSON.stringify(op));
+
   s = await getJson('/api/status');
   const runs = s.body.runs_24h.find((r) => r.status === 'ok');
   // 1 回目に上限で見送った 3 件目は、2 回目の実行で保存される
-  check('実行記録 3 回・新規 計3（2+1）・見送りあり・欠損 1', runs && runs.n === 3 && runs.tokens_new === 3 && runs.skipped >= 1 && runs.snaps_missing === 1, JSON.stringify(s.body.runs_24h));
+  check('実行記録 4 回・新規 計3（2+1）・見送りあり・欠損 1', runs && runs.n === 4 && runs.tokens_new === 3 && runs.skipped >= 1 && runs.snaps_missing === 1, JSON.stringify(s.body.runs_24h));
   check('D1 の rows_written が実測で集計されている', s.body.write_budget.used_today > 0, JSON.stringify(s.body.write_budget));
-  console.log(`    （参考: 3 回の実行で rows_written = ${s.body.write_budget.used_today}）`);
+  console.log(`    （参考: 4 回の実行で rows_written = ${s.body.write_budget.used_today}）`);
   check('エラー記録なし', s.body.errors_24h.length === 0, JSON.stringify(s.body.errors_24h));
 
   console.log('入力検証・静的配信');

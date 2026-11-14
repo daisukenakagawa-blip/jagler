@@ -26,7 +26,7 @@ class Stmt {
       return { results, success: true, meta: { rows_written: 0, changes: 0 } };
     }
     const r = st.run(...(args as never[]));
-    return { results: [], success: true, meta: { rows_written: Number(r.changes), changes: Number(r.changes) } };
+    return { results: [], success: true, meta: { rows_written: Number(r.changes), changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } };
   }
   async all() {
     return this.exec();

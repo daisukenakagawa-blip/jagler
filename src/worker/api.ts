@@ -1,4 +1,5 @@
 import { FINAL_STAGE, STAGE_OFFSETS_MIN, dailyBudget, runIngestion, writesUsedToday } from './ingest';
+import { paperPositions, paperSummary } from './paper';
 import { ensureSchema } from './schema';
 import { Env } from './types';
 import { isSolanaAddress, looksLikeAddress, safeEqual } from './util';
@@ -242,6 +243,11 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
     if (path === '/api/tokens') {
       const key = `tokens:${url.searchParams.toString().slice(0, 200)}`;
       return json(await cached(key, 20_000, () => listTokens(env, url)), 200, 10);
+    }
+    if (path === '/api/paper/summary') return json(await cached('paper:summary', 30_000, () => paperSummary(env.DB)), 200, 15);
+    if (path === '/api/paper/positions') {
+      const st = url.searchParams.get('status') === 'closed' ? 'closed' : 'open';
+      return json(await cached(`paper:pos:${st}`, 30_000, () => paperPositions(env.DB, st)), 200, 15);
     }
     const m = path.match(/^\/api\/tokens\/([^/]+)$/);
     if (m) {

@@ -157,6 +157,8 @@ CREATE TABLE IF NOT EXISTS paper_orders (
   status TEXT NOT NULL,
   reject_reason TEXT,
   saved_at INTEGER NOT NULL,
+  signal_stage INTEGER,
+  reason TEXT,
   UNIQUE(mint, strategy_id, side, signal_at)
 );
 
@@ -186,6 +188,10 @@ CREATE TABLE IF NOT EXISTS paper_positions (
   realized_pnl_usd REAL,
   exit_reason TEXT,
   saved_at INTEGER NOT NULL,
+  quantity REAL,
+  cost_usd REAL,
+  entry_price_usd REAL,
+  proceeds_usd REAL,
   UNIQUE(mint, strategy_id, opened_at)
 );
 
@@ -229,4 +235,4 @@ CREATE TABLE IF NOT EXISTS system_errors (
 
 CREATE INDEX IF NOT EXISTS idx_errors_occurred ON system_errors(occurred_at);
 
-INSERT INTO schema_meta(key, value) VALUES('version', '2') ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+INSERT INTO schema_meta(key, value) VALUES('version', '3') ON CONFLICT(key) DO UPDATE SET value = excluded.value;

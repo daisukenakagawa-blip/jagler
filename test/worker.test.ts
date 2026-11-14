@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearApiCache, handleApi } from '../src/worker/api';
 import { FINAL_STAGE, detectionDelaySec, newTokenAllowance, nextSnapshotAt, runCleanup, runIngestion } from '../src/worker/ingest';
+import { PAPER_CONFIG, coinFlip, simulateBuy, simulateSell } from '../src/worker/paper';
 import { assess, parseLargestAccounts, parseMintAccount, resetRpcPreference } from '../src/worker/risk';
 import { SCHEMA_STATEMENTS, ensureSchema, resetSchemaCache } from '../src/worker/schema';
 import { dsTokensUrl, parseDpNewPools, parseDsTokens, parseGtNewPools } from '../src/worker/sources';
@@ -215,7 +216,7 @@ describe('スキーマ', () => {
     const cols = (env.DB.raw.prepare(`PRAGMA table_info(tokens)`).all() as { name: string }[]).map((c) => c.name);
     expect(cols).toEqual(expect.arrayContaining(['risk_level', 'security_score', 'risk_assessed_at']));
     expect(count(env, `SELECT COUNT(*) n FROM tokens`)).toBe(1);
-    expect((env.DB.raw.prepare(`SELECT value v FROM schema_meta`).get() as { v: string }).v).toBe('2');
+    expect((env.DB.raw.prepare(`SELECT value v FROM schema_meta`).get() as { v: string }).v).toBe('3');
   });
   it('必須 14 テーブルがすべて作成され、再実行しても壊れない', async () => {
     const env = makeEnv();
@@ -366,17 +367,17 @@ describe('収集パイプライン', () => {
   });
 
   it('新規保存は 1 日に均等配分される（早い時間帯に枠を使い切らない）', async () => {
-    // 予算 1000 行 → 新規枠 850 行 ÷ 36 行/銘柄 ÷ 1440 分。06:00 UTC（361 分経過）時点の累計許容は 5 銘柄
-    expect(newTokenAllowance(T0, 1000, 0)).toBe(5);
-    expect(newTokenAllowance(T0, 1000, 5)).toBe(0);
+    // 予算 1000 行 → 新規枠 850 行 ÷ 50 行/銘柄 ÷ 1440 分。06:00 UTC（361 分経過）時点の累計許容は 4 銘柄
+    expect(newTokenAllowance(T0, 1000, 0)).toBe(4);
+    expect(newTokenAllowance(T0, 1000, 4)).toBe(0);
     expect(newTokenAllowance(T0 - 6 * 3600_000, 1000, 0)).toBe(0); // 日付が変わった直後
-    expect(newTokenAllowance(T0, 80_000, 0)).toBeGreaterThan(400);
+    expect(newTokenAllowance(T0, 80_000, 0)).toBeGreaterThan(300);
     const env = makeEnv({ DAILY_WRITE_BUDGET: '1000', MAX_NEW_TOKENS_PER_RUN: '20' });
     vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse(Array.from({ length: 10 }, (_, i) => gtPool(i + 1, iso(T0))))) }).fn);
     const r1 = await runIngestion(env, T0);
-    expect(r1.stats).toMatchObject({ tokensNew: 5, tokensSkippedBudget: 5 });
+    expect(r1.stats).toMatchObject({ tokensNew: 4, tokensSkippedBudget: 6 });
     const r2 = await runIngestion(env, T0 + 60_000);
-    expect(r2.stats).toMatchObject({ tokensNew: 0, tokensSkippedBudget: 5 }); // 枠が回復するまで見送り
+    expect(r2.stats).toMatchObject({ tokensNew: 0, tokensSkippedBudget: 6 }); // 枠が回復するまで見送り
   });
 
   it('前日の書き込みは当日の予算に数えない（UTC 0時リセット）', async () => {
@@ -551,6 +552,166 @@ describe('リスク判定の自動実行', () => {
     vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now))])), rpc: () => jsonRes({ jsonrpc: '2.0', id: 1, result: { value: null } }) }).fn);
     await runIngestion(env, now);
     expect((env.DB.raw.prepare(`SELECT risk_level r, security_score s FROM tokens`).get() as Record<string, unknown>)).toMatchObject({ r: 'UNKNOWN', s: null });
+  });
+});
+
+describe('仮想売買', () => {
+  const C = PAPER_CONFIG;
+  it('買いの約定モデル: 手数料と価格影響を含み、流動性で数量を制限し、観測値が無ければ約定しない', () => {
+    const f = simulateBuy(50, 0.001, 10_000);
+    if (!f.ok) throw new Error('should fill');
+    const net = 50 * (1 - C.feeRate);
+    expect(f.spentUsd).toBe(50);
+    expect(f.effPrice).toBeCloseTo(0.001 * (1 + net / 5000), 12);
+    expect(f.quantity).toBeCloseTo(net / f.effPrice, 6);
+    expect(f.quantity * 0.001).toBeLessThan(net); // 価格影響の分だけ必ず目減りする
+    expect(f.slippageUsd).toBeGreaterThan(0);
+    const small = simulateBuy(50, 0.001, 600); // 準備金 300 の 5% = 15 ドルまで
+    expect(small).toMatchObject({ ok: true, spentUsd: 15, partial: true });
+    expect(simulateBuy(50, 0.001, 100)).toEqual({ ok: false, reason: 'insufficient_liquidity' });
+    expect(simulateBuy(50, null, 10_000)).toEqual({ ok: false, reason: 'no_price_at_fill' });
+    expect(simulateBuy(50, 0.001, null)).toEqual({ ok: false, reason: 'no_liquidity_at_fill' });
+    expect(simulateBuy(50, 0.001, 0)).toEqual({ ok: false, reason: 'no_liquidity_at_fill' });
+  });
+  it('売りの約定モデル: 流動性が細ると受取額は準備金で頭打ちになる', () => {
+    const f = simulateSell(1000, 0.1, 10_000); // 時価 100、準備金 5000
+    if (!f.ok) throw new Error('should fill');
+    const gross = (5000 * 100) / 5100;
+    expect(f.proceedsUsd).toBeCloseTo(gross * (1 - C.feeRate), 9);
+    const rug = simulateSell(1000, 0.1, 2); // 時価 100 でも準備金は 1 ドル
+    if (!rug.ok) throw new Error('should fill');
+    expect(rug.proceedsUsd).toBeLessThan(1);
+    expect(simulateSell(1000, null, 10_000).ok).toBe(false);
+    expect(simulateSell(1000, 0.1, null).ok).toBe(false);
+  });
+
+  /** 1 銘柄を検出し、以後の各追跡時点で ds() が返す価格・流動性を使ってパイプラインを進める */
+  async function scenario(steps: ({ price: string; liq: number } | null)[], opts: { rpc?: Parameters<typeof mockFetch>[0]['rpc'] } = {}) {
+    resetSchemaCache(); // 1 つのテスト内で複数の DB を使うため
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const mint = addr(1001);
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(T0))])), rpc: opts.rpc }).fn);
+    await runIngestion(env, T0);
+    const offsets = [5, 15, 60, 360, 1440];
+    for (let i = 0; i < steps.length; i++) {
+      const st = steps[i];
+      vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes({ data: [] }), ds: () => jsonRes(st ? [dsPair(mint, addr(2001), st.price, st.liq)] : []), rpc: opts.rpc }).fn);
+      await runIngestion(env, T0 + offsets[i] * 60_000);
+    }
+    const q = (sql: string) => env.DB.raw.prepare(sql).all() as Record<string, number & string>[];
+    return { env, mint, q };
+  }
+  const P0 = 0.0000123;
+
+  it('シグナル → 次の観測値で約定 → 利確シグナル → さらに次の観測値で決済、損益は全コスト控除後', async () => {
+    const { q } = await scenario([{ price: '0.00001', liq: 10_000 }, { price: '0.00003', liq: 12_000 }, { price: '0.000025', liq: 12_000 }]);
+    const buy = q(`SELECT * FROM paper_orders WHERE strategy_id='baseline_all' AND side='BUY'`)[0];
+    expect(buy).toMatchObject({ signal_stage: 0, signal_at: T0, status: 'filled', requested_usd: 50 });
+    const pos = q(`SELECT * FROM paper_positions WHERE strategy_id='baseline_all'`)[0];
+    const bf = simulateBuy(50, 0.00001, 10_000);
+    if (!bf.ok) throw new Error();
+    expect(pos.opened_at).toBe(T0 + 5 * 60_000); // 検出時(0.0000123)ではなく、5分後に観測した価格で約定
+    expect(pos.entry_price_usd).toBeCloseTo(bf.effPrice, 15);
+    expect(pos.cost_usd).toBeCloseTo(50 + C.priorityFeeUsd, 9);
+    const sell = q(`SELECT * FROM paper_orders WHERE strategy_id='baseline_all' AND side='SELL'`)[0];
+    expect(sell).toMatchObject({ signal_stage: 2, reason: 'take_profit', status: 'filled' });
+    const sf = simulateSell(bf.quantity, 0.000025, 12_000); // 利確条件を見た 0.00003 ではなく、次に観測した 0.000025 で決済
+    if (!sf.ok) throw new Error();
+    expect(pos).toMatchObject({ status: 'closed', exit_reason: 'take_profit', closed_at: T0 + 60 * 60_000 });
+    expect(pos.realized_pnl_usd).toBeCloseTo(sf.proceedsUsd - C.priorityFeeUsd - (50 + C.priorityFeeUsd), 9);
+    expect(pos.realized_pnl_usd).toBeLessThan(50 * 2.5 - 50); // 単純な価格比（+150% = +75 ドル）より必ず小さい
+    expect(pos.realized_pnl_usd).toBeGreaterThan(60);
+  });
+
+  it('未来情報を使わない: すべての約定は、そのシグナルより後に観測したスナップショットで行われる', async () => {
+    const { q } = await scenario([{ price: '0.00002', liq: 10_000 }, { price: '0.00005', liq: 10_000 }, { price: '0.00001', liq: 9_000 }, { price: '0.00001', liq: 9_000 }, { price: '0.00001', liq: 9_000 }]);
+    const rows = q(`SELECT o.signal_at, o.signal_stage, o.reason, t.filled_at, s.stage AS fill_stage, s.observed_at FROM paper_trades t JOIN paper_orders o ON o.id=t.order_id JOIN price_snapshots s ON s.id=t.fill_snapshot_id`);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    for (const r of rows) {
+      expect(r.filled_at).toBe(r.observed_at);
+      expect(r.fill_stage).toBeGreaterThan(r.signal_stage);
+      expect(r.filled_at).toBeGreaterThan(r.signal_at);
+    }
+  });
+
+  it('5分モメンタム: +20% かつ買い優勢のときだけ 5 分時点でシグナル、約定は 15 分時点', async () => {
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const mint = addr(1001);
+    const pair = (price: string, buys: number, sells: number) => ({ ...dsPair(mint, addr(2001), price, 10_000), txns: { m5: { buys, sells }, h1: { buys, sells }, h24: { buys, sells } } });
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(T0))])) }).fn);
+    await runIngestion(env, T0);
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes({ data: [] }), ds: () => jsonRes([pair(String(P0 * 1.3), 9, 2)]) }).fn);
+    await runIngestion(env, T0 + 5 * 60_000);
+    const o = env.DB.raw.prepare(`SELECT * FROM paper_orders WHERE strategy_id='momentum_5m'`).get() as Record<string, unknown>;
+    expect(o).toMatchObject({ side: 'BUY', signal_stage: 1, status: 'pending' });
+    await runIngestion(env, T0 + 15 * 60_000);
+    expect(env.DB.raw.prepare(`SELECT opened_at FROM paper_positions WHERE strategy_id='momentum_5m'`).get()).toMatchObject({ opened_at: T0 + 15 * 60_000 });
+
+    resetSchemaCache();
+    const env2 = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(T0))])) }).fn);
+    await runIngestion(env2, T0);
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes({ data: [] }), ds: () => jsonRes([pair(String(P0 * 1.3), 2, 9)]) }).fn); // 売り優勢
+    await runIngestion(env2, T0 + 5 * 60_000);
+    expect(count(env2, `SELECT COUNT(*) n FROM paper_orders WHERE strategy_id='momentum_5m'`)).toBe(0);
+  });
+
+  it('約定時点の価格が観測できなければ未約定として記録し、建玉は作らない', async () => {
+    const { q, env } = await scenario([null]);
+    expect(q(`SELECT status, reject_reason FROM paper_orders WHERE strategy_id='baseline_all'`)).toEqual([{ status: 'unfilled', reject_reason: 'no_price_at_fill' }]);
+    expect(count(env, `SELECT COUNT(*) n FROM paper_positions`)).toBe(0);
+    expect(count(env, `SELECT COUNT(*) n FROM paper_trades`)).toBe(0);
+  });
+
+  it('売却できないまま最終時点を迎えたら、利益を確定させず投下額の全損にする', async () => {
+    const { q } = await scenario([{ price: '0.00001', liq: 10_000 }, { price: '0.0001', liq: 10_000 }, null, null, null]); // +900% を見たあとペアが消える
+    const pos = q(`SELECT * FROM paper_positions WHERE strategy_id='baseline_all'`)[0];
+    expect(pos).toMatchObject({ status: 'unsellable', exit_reason: 'unsellable', proceeds_usd: 0 });
+    expect(pos.realized_pnl_usd).toBeCloseTo(-(50 + C.priorityFeeUsd), 9);
+    expect(q(`SELECT status, reject_reason, reason FROM paper_orders WHERE strategy_id='baseline_all' AND side='SELL'`)).toEqual([{ status: 'unfilled', reject_reason: 'unsellable', reason: 'take_profit' }]);
+  });
+
+  it('流動性が消失した状態での決済は、価格が高くてもほぼ全損になる', async () => {
+    const { q } = await scenario([{ price: '0.00001', liq: 10_000 }, { price: '0.000004', liq: 10_000 }, { price: '0.00005', liq: 3 }]); // 損切りシグナル後、流動性 3 ドル
+    const pos = q(`SELECT * FROM paper_positions WHERE strategy_id='baseline_all'`)[0];
+    expect(pos).toMatchObject({ status: 'closed', exit_reason: 'stop_loss' });
+    expect(pos.proceeds_usd).toBeLessThan(2);
+    expect(pos.realized_pnl_usd).toBeLessThan(-48);
+  });
+
+  it('保有期限: 6 時間時点で決済を予約し、24 時間時点の観測値で約定する', async () => {
+    const s = { price: '0.000011', liq: 10_000 };
+    const { q } = await scenario([{ price: '0.00001', liq: 10_000 }, s, s, s, s]);
+    expect(q(`SELECT signal_stage, reason, status FROM paper_orders WHERE strategy_id='baseline_all' AND side='SELL'`)).toEqual([{ signal_stage: 4, reason: 'max_hold', status: 'filled' }]);
+    expect(q(`SELECT status, exit_reason, closed_at FROM paper_positions WHERE strategy_id='baseline_all'`)).toEqual([{ status: 'closed', exit_reason: 'max_hold', closed_at: T0 + 1440 * 60_000 }]);
+  });
+
+  it('HIGH 判定・未判定の銘柄にはエントリーしない', async () => {
+    const high = await scenario([{ price: '0.00001', liq: 10_000 }], { rpc: () => jsonRes(rpcMint({ freezeAuthority: addr(9) })) });
+    expect(count(high.env, `SELECT COUNT(*) n FROM paper_orders`)).toBe(0);
+    const pending = await scenario([{ price: '0.00001', liq: 10_000 }], { rpc: () => jsonRes({}, 500) });
+    expect(count(pending.env, `SELECT COUNT(*) n FROM paper_orders`)).toBe(0);
+  });
+
+  it('対照戦略の抽選は mint だけで決まり、再実行しても変わらない', () => {
+    const flips = Array.from({ length: 200 }, (_, i) => coinFlip(addr(i)));
+    expect(flips).toEqual(Array.from({ length: 200 }, (_, i) => coinFlip(addr(i))));
+    const heads = flips.filter(Boolean).length;
+    expect(heads).toBeGreaterThan(60);
+    expect(heads).toBeLessThan(140);
+  });
+
+  it('成績 API: コスト控除後の集計を返し、サンプル不足を明示する', async () => {
+    const { env } = await scenario([{ price: '0.00001', liq: 10_000 }, { price: '0.00003', liq: 12_000 }, { price: '0.000025', liq: 12_000 }]);
+    const sum = (await (await handleApi(new Request('https://app.test/api/paper/summary'), env, ctx)).json()) as { strategies: Record<string, number & string & boolean>[]; min_sample: number };
+    const b = sum.strategies.find((s) => s.id === 'baseline_all')!;
+    expect(b).toMatchObject({ closed_trades: 1, win_rate: 1, unsellable: 0, open_positions: 0, sample_sufficient: false });
+    expect(b.total_pnl_usd).toBeGreaterThan(0);
+    expect(b.fees_usd).toBeGreaterThan(2 * C.priorityFeeUsd);
+    expect(b.slippage_usd).toBeGreaterThan(0);
+    expect(sum.strategies.map((s) => s.id)).toEqual(['baseline_all', 'random_half', 'momentum_5m']);
+    const closed = (await (await handleApi(new Request('https://app.test/api/paper/positions?status=closed'), env, ctx)).json()) as { positions: { symbol: string; exit_reason: string }[] };
+    expect(closed.positions[0]).toMatchObject({ symbol: 'TKN0', exit_reason: 'take_profit' });
   });
 });
 

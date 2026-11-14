@@ -56,7 +56,7 @@ Worker の Settings → Variables and Secrets で Secret を追加:
 
 ```bash
 npm install
-npm test                  # 単体テスト（50 件）
+npm test                  # 単体テスト（62 件）
 npm run build && npm run test:integration   # workerd + ローカル D1 での結合テスト
 npm run typecheck
 npm run dev:worker        # ローカル実行（http://localhost:8787）

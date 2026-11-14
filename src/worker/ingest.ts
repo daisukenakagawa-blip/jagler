@@ -1,3 +1,4 @@
+import { Touched, runPaper } from './paper';
 import { runRiskChecks } from './risk';
 import { ensureSchema } from './schema';
 import {
@@ -25,9 +26,9 @@ export const NEW_TOKEN_BUDGET_RATIO = 0.85;
 
 /**
  * 1 銘柄を検出から 24 時間追跡し終えるまでの D1 書き込み行数の見積り
- * （行 + 索引。収集・追跡で約 29 行（ローカル D1 実測）+ リスク判定で約 6 行）。新規保存ペースの計算に使う。
+ * （行 + 索引。収集・追跡で約 29 行（ローカル D1 実測）+ リスク判定で約 6 行 + 仮想売買で最大十数行）。新規保存ペースの計算に使う。
  */
-export const EST_WRITES_PER_TOKEN = 36;
+export const EST_WRITES_PER_TOKEN = 50;
 
 /**
  * その時点までに保存してよい新規銘柄の累計数。
@@ -61,6 +62,8 @@ interface RunStats {
   snapshotsMissing: number;
   rowsWritten: number;
   apiCalls: number;
+  /** この実行でスナップショットが増えた銘柄（仮想売買エンジンに渡す。DB には保存しない） */
+  touched: Touched[];
 }
 interface RunError {
   component: string;
@@ -249,6 +252,7 @@ async function discover(env: Env, now: number, allowance: number, stats: RunStat
   if (stmts.length === 0) return;
   stats.rowsWritten += sumWritten(await db.batch(stmts));
   stats.tokensNew = newTokenPools.length;
+  for (const p of newTokenPools) stats.touched.push({ mint: p.mint, stage: 0 });
   stats.snapshotsWritten += newTokenPools.length;
 }
 
@@ -298,6 +302,7 @@ async function followUp(env: Env, now: number, stats: RunStats): Promise<void> {
         advance(r),
       );
       stats.snapshotsMissing++;
+      stats.touched.push({ mint: r.mint, stage: r.snapshot_stage + 1 });
     }
     if (stmts.length) stats.rowsWritten += sumWritten(await db.batch(stmts));
     throw e;
@@ -306,6 +311,7 @@ async function followUp(env: Env, now: number, stats: RunStats): Promise<void> {
   const stmts: D1PreparedStatement[] = [];
   for (const r of due) {
     const stage = r.snapshot_stage + 1;
+    stats.touched.push({ mint: r.mint, stage });
     const q = quotes.get(r.mint);
     if (!q) {
       // API は応答したがペアが返らない（上場廃止・流動性消失など）。価格は捏造せず欠損として残す
@@ -393,6 +399,7 @@ const emptyStats = (): RunStats => ({
   snapshotsMissing: 0,
   rowsWritten: 0,
   apiCalls: 0,
+  touched: [],
 });
 
 /** 1 分ごとの定期処理本体 */
@@ -425,6 +432,11 @@ export async function runIngestion(env: Env, now = Date.now()): Promise<{ status
         await runRiskChecks(env, now, stats);
       } catch (e) {
         errors.push(toRunError('risk', e));
+      }
+      try {
+        await runPaper(env, now, stats.touched, stats);
+      } catch (e) {
+        errors.push(toRunError('paper', e));
       }
       if (coreFailed) status = 'failed';
       else if (errors.length > 0) status = 'partial';
