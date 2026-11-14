@@ -153,7 +153,7 @@ export function assess(mint: MintInfo | null, holders: HolderInfo | null): { lev
       detail: `最大口座 ${t1}%、2〜10位の合計 ${rest.toFixed(1)}%。最大口座はプールやボンディングカーブの可能性があり、開発者の保有とは区別できていません`,
     });
   } else {
-    f.push({ check: 'holder_concentration', severity: 'INFO', detail: '保有者の分布: 未取得' });
+    f.push({ check: 'holder_concentration', severity: 'INFO', detail: '保有者の分布: 未取得（キー不要の公開 RPC では取得できないため。専用 RPC の設定で取得可能）' });
   }
   f.push({
     check: 'not_checked',
@@ -171,7 +171,9 @@ export function assess(mint: MintInfo | null, holders: HolderInfo | null): { lev
 }
 
 async function rpc(env: Env, method: string, params: unknown[], counter: { apiCalls: number }): Promise<unknown> {
-  const endpoints = env.SOLANA_RPC_URL ? [env.SOLANA_RPC_URL] : [DEFAULT_RPC, FALLBACK_RPC];
+  // 既定は予備側を先に試す: 公式の公開 RPC は Workers からだと 403 になる（本番で継続的に確認）。
+  // isolate は実行ごとに作り直されることがあり、「前回通った方」の記憶には頼れない
+  const endpoints = env.SOLANA_RPC_URL ? [env.SOLANA_RPC_URL] : [FALLBACK_RPC, DEFAULT_RPC];
   let json: unknown;
   let lastErr: unknown = null;
   for (let i = 0; i < endpoints.length; i++) {
@@ -228,7 +230,9 @@ export async function runRiskChecks(
     }
     let holders: HolderInfo | null = null;
     let holderErr = false;
-    if (info && now >= holdersPausedUntil) {
+    // 保有者分布（getTokenLargestAccounts）はキー不要の公開 RPC では拒否される（本番で 403 を確認）。
+    // 専用 RPC（SOLANA_RPC_URL）が設定されているときだけ取得する
+    if (info && env.SOLANA_RPC_URL && now >= holdersPausedUntil) {
       try {
         holders = parseLargestAccounts(await rpc(env, 'getTokenLargestAccounts', [mint, { commitment: 'confirmed' }], stats), info.supply);
       } catch (e) {

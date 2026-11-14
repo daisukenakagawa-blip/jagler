@@ -446,7 +446,7 @@ describe('検出元の切り替え', () => {
 
 describe('リスク判定の自動実行', () => {
   it('保有者分布の取得が拒否されたら、権限だけで判定し、以後 1 時間はそのメソッドを呼ばない', async () => {
-    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10', SOLANA_RPC_URL: 'https://rpc.example.test/' });
     const now = Date.now();
     const methods: string[] = [];
     const rpc = (method: string) => (methods.push(method), method === 'getAccountInfo' ? jsonRes(rpcMint()) : jsonRes({}, 403));
@@ -455,11 +455,54 @@ describe('リスク判定の自動実行', () => {
     expect(r1.errors.map((e) => e.component)).toEqual(['risk']);
     expect(count(env, `SELECT COUNT(*) n FROM tokens WHERE risk_level = 'LOW'`)).toBe(2);
     expect(count(env, `SELECT COUNT(*) n FROM holder_snapshots`)).toBe(0);
-    expect(methods.filter((m) => m === 'getTokenLargestAccounts')).toHaveLength(2); // 公式・予備の各 1 回で打ち切り
+    expect(methods.filter((m) => m === 'getTokenLargestAccounts')).toHaveLength(1); // 1 回で打ち切り
     vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(3, iso(now))])), rpc }).fn);
     const r2 = await runIngestion(env, now + 60_000);
     expect(r2.status).toBe('ok'); // 同じエラーを毎分積まない
-    expect(methods.filter((m) => m === 'getTokenLargestAccounts')).toHaveLength(2);
+    expect(methods.filter((m) => m === 'getTokenLargestAccounts')).toHaveLength(1);
+    const d = (await (await handleApi(new Request(`https://app.test/api/tokens/${addr(1003)}`), env, ctx)).json()) as { risk: { findings: { check: string; detail: string }[] } };
+    expect(d.risk.findings.find((f) => f.check === 'holder_concentration')?.detail).toContain('未取得');
+  });
+
+  it('専用 RPC 未設定時: 予備の公開 RPC を先に使い、拒否される保有者分布は呼ばず、エラーも出さない', async () => {
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const now = Date.now();
+    const seen: string[] = [];
+    const rpc = (method: string, _p: unknown[], url: string) => {
+      seen.push(`${new URL(url).host}:${method}`);
+      return url.includes('mainnet-beta') ? jsonRes({}, 403) : jsonRes(rpcMint());
+    };
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now)), gtPool(2, iso(now))])), rpc }).fn);
+    const r = await runIngestion(env, now);
+    expect(r.status).toBe('ok');
+    expect(count(env, `SELECT COUNT(*) n FROM tokens WHERE risk_level = 'LOW'`)).toBe(2);
+    expect(seen).toEqual(['solana-rpc.publicnode.com:getAccountInfo', 'solana-rpc.publicnode.com:getAccountInfo']);
+  });
+
+  it('予備の公開 RPC が失敗したら公式 RPC を試す', async () => {
+    const env = makeEnv();
+    const now = Date.now();
+    const rpc = (_m: string, _p: unknown[], url: string) => (url.includes('publicnode') ? jsonRes({}, 500) : jsonRes(rpcMint({ mintAuthority: addr(5) })));
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now))])), rpc }).fn);
+    await runIngestion(env, now);
+    expect(count(env, `SELECT COUNT(*) n FROM tokens WHERE risk_level = 'HIGH'`)).toBe(1);
+  });
+
+  it('保有者分布の取得が拒否されたら、権限だけで判定し、以後 1 時間はそのメソッドを呼ばない', async () => {
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10', SOLANA_RPC_URL: 'https://rpc.example.test/' });
+    const now = Date.now();
+    const methods: string[] = [];
+    const rpc = (method: string) => (methods.push(method), method === 'getAccountInfo' ? jsonRes(rpcMint()) : jsonRes({}, 403));
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now)), gtPool(2, iso(now))])), rpc }).fn);
+    const r1 = await runIngestion(env, now);
+    expect(r1.errors.map((e) => e.component)).toEqual(['risk']);
+    expect(count(env, `SELECT COUNT(*) n FROM tokens WHERE risk_level = 'LOW'`)).toBe(2);
+    expect(count(env, `SELECT COUNT(*) n FROM holder_snapshots`)).toBe(0);
+    expect(methods.filter((m) => m === 'getTokenLargestAccounts')).toHaveLength(1); // 1 回で打ち切り
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(3, iso(now))])), rpc }).fn);
+    const r2 = await runIngestion(env, now + 60_000);
+    expect(r2.status).toBe('ok'); // 同じエラーを毎分積まない
+    expect(methods.filter((m) => m === 'getTokenLargestAccounts')).toHaveLength(1);
     const d = (await (await handleApi(new Request(`https://app.test/api/tokens/${addr(1003)}`), env, ctx)).json()) as { risk: { findings: { check: string; detail: string }[] } };
     expect(d.risk.findings.find((f) => f.check === 'holder_concentration')?.detail).toContain('未取得');
   });
@@ -482,7 +525,7 @@ describe('リスク判定の自動実行', () => {
   });
 
   it('検出した銘柄を判定して根拠・時刻つきで保存し、API で返す', async () => {
-    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10', SOLANA_RPC_URL: 'https://rpc.example.test/' });
     const now = Date.now();
     const f = mockFetch({
       gt: () => jsonRes(gtResponse([gtPool(1, iso(now - 20_000)), gtPool(2, iso(now - 30_000))])),
