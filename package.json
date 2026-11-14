@@ -1,0 +1,35 @@
+{
+  "name": "meme-radar-ai",
+  "version": "0.3.0",
+  "description": "Solana 新規トークンの自動検出・追跡（仮想検証専用。実資金の売買機能なし）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "dev:worker": "wrangler dev",
+    "deploy": "vite build && wrangler deploy",
+    "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:integration": "node scripts/integration.mjs",
+    "gen:migration": "node scripts/gen-migration.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261114.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.162.0"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "private": true,
+  "type": "module"
+}
