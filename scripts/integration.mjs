@@ -14,6 +14,7 @@ const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const addr = (seed) => { let s = '', x = seed * 7919 + 13; for (let i = 0; i < 44; i++) { x = (x * 1103515245 + 12345) % 2147483648; s += B58[x % 58]; } return s; };
 const MINTS = [addr(1), addr(2), addr(3)];
 const dsRequests = [];
+const rpcRequests = [];
 
 const mock = createServer((req, res) => {
   const send = (o) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
@@ -50,6 +51,18 @@ const mock = createServer((req, res) => {
       volume: { m5: 10, h1: 200, h24: 200 }, liquidity: { usd: 9100 }, fdv: 50000, marketCap: 50000,
     })));
   }
+  if (req.method === 'POST') {
+    let b = '';
+    req.on('data', (c) => (b += c));
+    req.on('end', () => {
+      const { method, params } = JSON.parse(b);
+      rpcRequests.push(method);
+      if (method === 'getAccountInfo')
+        return send({ jsonrpc: '2.0', id: 1, result: { value: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: { program: 'spl-token', parsed: { type: 'mint', info: { decimals: 6, supply: '1000000', mintAuthority: params[0] === MINTS[0] ? MINTS[2] : null, freezeAuthority: null } } } } } });
+      return send({ jsonrpc: '2.0', id: 1, result: { value: [{ amount: '700000' }, { amount: '50000' }] } });
+    });
+    return;
+  }
   res.writeHead(404); res.end();
 });
 
@@ -64,7 +77,7 @@ rmSync('.wrangler/it-state', { recursive: true, force: true });
 await new Promise((r) => mock.listen(MOCK, '127.0.0.1', r));
 const wr = spawn('npx', [
   'wrangler', 'dev', '--port', String(PORT), '--ip', '127.0.0.1', '--test-scheduled', '--persist-to', '.wrangler/it-state',
-  '--var', 'DAILY_WRITE_BUDGET:50000000', '--var', `GT_BASE_URL:http://127.0.0.1:${MOCK}`, '--var', `DS_BASE_URL:http://127.0.0.1:${MOCK}`, '--show-interactive-dev-session=false',
+  '--var', 'DAILY_WRITE_BUDGET:50000000', '--var', `GT_BASE_URL:http://127.0.0.1:${MOCK}`, '--var', `DS_BASE_URL:http://127.0.0.1:${MOCK}`, '--var', `SOLANA_RPC_URL:http://127.0.0.1:${MOCK}/`, '--show-interactive-dev-session=false',
 ], { detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false' } });
 let log = '';
 wr.stdout.on('data', (d) => (log += d));
@@ -93,6 +106,9 @@ try {
   const t0 = list.body.tokens.find((t) => t.mint === MINTS[0]);
   check('実測値が保存されている', t0 && t0.last_price_usd === 0.00002 && t0.last_liquidity_usd === 7000 && t0.detection_delay_sec >= 20 && t0.detection_delay_sec <= 40, JSON.stringify(t0));
 
+  check('リスク判定: Mint 権限ありの銘柄 A は HIGH、B は LOW', t0 && t0.risk_level === 'HIGH' && list.body.tokens.find((t) => t.mint === MINTS[1])?.risk_level === 'LOW', JSON.stringify(list.body.tokens.map((t) => t.risk_level)));
+  check('RPC は銘柄ごとに 2 メソッドだけ呼ばれる', rpcRequests.length === 4 && rpcRequests.filter((m) => m === 'getAccountInfo').length === 2, JSON.stringify(rpcRequests));
+
   console.log('Cron 2 回目（同じ応答 → 重複排除）');
   await fetch(`${BASE}/cdn-cgi/handler/scheduled?cron=*+*+*+*+*&time=${now + 60_000}`);
   console.log('Cron 3 回目（5 分後 → 追跡）');
@@ -105,6 +121,7 @@ try {
   check('銘柄 A: +5分スナップショットが dexscreener の実測値で保存', d0.snapshots.length === 2 && d0.snapshots[1].stage === 1 && d0.snapshots[1].price_usd === 0.00005 && d0.snapshots[1].source === 'dexscreener' && d0.snapshots[1].data_quality === 'ok', JSON.stringify(d0.snapshots));
   check('銘柄 A: 検出時価格は保持、最新値は更新', d0.token.initial_price_usd === 0.00002 && d0.token.last_price_usd === 0.00005 && d0.token.snapshot_stage === 1);
   check('銘柄 A: プールは重複していない', d0.pools.length === 1);
+  check('銘柄 A: 判定根拠と保有集中が詳細 API に出る', d0.risk?.risk_level === 'HIGH' && d0.risk.findings.some((f) => f.check === 'mint_authority' && f.severity === 'HIGH') && d0.holders?.top1_pct === 70 && d0.token.mint_authority_state === 'present', JSON.stringify(d0.risk));
   const d1 = (await getJson(`/api/tokens/${MINTS[1]}`)).body;
   check('銘柄 B: ペアなし → 価格 null の欠損として記録', d1.snapshots.length === 2 && d1.snapshots[1].price_usd === null && d1.snapshots[1].data_quality === 'missing_not_listed', JSON.stringify(d1.snapshots));
   check('銘柄 B: 最新値は検出時のまま（捏造・上書きなし）', d1.token.last_price_usd === 0.00002 && d1.token.last_source === 'geckoterminal');

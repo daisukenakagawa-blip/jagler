@@ -1,3 +1,4 @@
+import { runRiskChecks } from './risk';
 import { ensureSchema } from './schema';
 import {
   DS_DEFAULT_BASE,
@@ -21,9 +22,9 @@ export const NEW_TOKEN_BUDGET_RATIO = 0.85;
 
 /**
  * 1 銘柄を検出から 24 時間追跡し終えるまでの D1 書き込み行数の見積り
- * （行 + 索引。ローカル D1 での実測は約 29 行）。新規保存ペースの計算に使う。
+ * （行 + 索引。収集・追跡で約 29 行（ローカル D1 実測）+ リスク判定で約 6 行）。新規保存ペースの計算に使う。
  */
-export const EST_WRITES_PER_TOKEN = 30;
+export const EST_WRITES_PER_TOKEN = 36;
 
 /**
  * その時点までに保存してよい新規銘柄の累計数。
@@ -111,7 +112,12 @@ async function selectIn(db: D1Database, sql: string, values: string[]): Promise<
 /** 新規プールの検出と保存 */
 async function discover(env: Env, now: number, allowance: number, stats: RunStats): Promise<void> {
   const db = env.DB;
-  const json = await fetchJson('geckoterminal', gtNewPoolsUrl(env.GT_BASE_URL || GT_DEFAULT_BASE), {}, stats);
+  const json = await fetchJson(
+    'geckoterminal',
+    gtNewPoolsUrl(env.GT_BASE_URL || GT_DEFAULT_BASE),
+    { retries429: 2 }, // 共有 IP 由来とみられる 429 が出るため、同じ実行内で最大 2 回だけ待って再試行
+    stats,
+  );
   const seen = new Set<string>();
   const pools: DetectedPool[] = [];
   for (const p of parseGtNewPools(json)) {
@@ -364,8 +370,14 @@ export async function runIngestion(env: Env, now = Date.now()): Promise<{ status
       } catch (e) {
         errors.push(toRunError('follow_up', e));
       }
-      if (errors.length === 2) status = 'failed';
-      else if (errors.length === 1) status = 'partial';
+      const coreFailed = errors.length === 2;
+      try {
+        await runRiskChecks(env, now, stats);
+      } catch (e) {
+        errors.push(toRunError('risk', e));
+      }
+      if (coreFailed) status = 'failed';
+      else if (errors.length > 0) status = 'partial';
     }
   } catch (e) {
     errors.push(toRunError('run', e));

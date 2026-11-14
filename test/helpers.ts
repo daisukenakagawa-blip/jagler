@@ -138,14 +138,50 @@ export function dsPair(mint: string, pair: string, priceUsd: string, liqUsd: num
   };
 }
 
-/** fetch を差し替え、ホストごとに応答を返す。呼ばれた URL を記録する */
-export function mockFetch(routes: { gt?: () => Response | Promise<Response>; ds?: (url: string) => Response | Promise<Response> }) {
+/** getAccountInfo(jsonParsed) 形式の mint 口座応答 */
+export function rpcMint(over: { mintAuthority?: string | null; freezeAuthority?: string | null; token2022?: boolean; extensions?: unknown[]; supply?: string } = {}) {
+  return {
+    jsonrpc: '2.0', id: 1,
+    result: {
+      context: { slot: 1 },
+      value: {
+        owner: over.token2022 ? 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' : 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+        data: {
+          program: over.token2022 ? 'spl-token-2022' : 'spl-token',
+          parsed: {
+            type: 'mint',
+            info: {
+              decimals: 6, isInitialized: true, supply: over.supply ?? '1000000000000000',
+              mintAuthority: over.mintAuthority ?? null, freezeAuthority: over.freezeAuthority ?? null,
+              ...(over.extensions ? { extensions: over.extensions } : {}),
+            },
+          },
+        },
+      },
+    },
+  };
+}
+/** getTokenLargestAccounts 形式。amounts は最小単位の整数文字列 */
+export const rpcLargest = (amounts: string[]) => ({
+  jsonrpc: '2.0', id: 1,
+  result: { context: { slot: 1 }, value: amounts.map((amount, i) => ({ address: addr(5000 + i), amount, decimals: 6 })) },
+});
+
+type RpcHandler = (method: string, params: unknown[]) => Response | Promise<Response>;
+/** fetch を差し替え、ホストごとに応答を返す。呼ばれた URL を記録する。rpc 未指定時は「権限放棄済み・分散」の応答 */
+export function mockFetch(routes: { gt?: () => Response | Promise<Response>; ds?: (url: string) => Response | Promise<Response>; rpc?: RpcHandler }) {
   const calls: string[] = [];
-  const fn = async (input: RequestInfo | URL) => {
+  const defaultRpc: RpcHandler = (method) =>
+    jsonRes(method === 'getAccountInfo' ? rpcMint() : rpcLargest(['800000000000000', '20000000000000', '10000000000000']));
+  const fn = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push(url);
     if (url.includes('geckoterminal') && routes.gt) return routes.gt();
     if (url.includes('dexscreener') && routes.ds) return routes.ds(url);
+    if (url.includes('solana.com')) {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      return (routes.rpc ?? defaultRpc)(body.method, body.params);
+    }
     throw new Error('unexpected fetch ' + url);
   };
   return { fn: fn as typeof fetch, calls };

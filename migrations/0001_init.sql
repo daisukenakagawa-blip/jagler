@@ -31,7 +31,10 @@ CREATE TABLE IF NOT EXISTS tokens (
   last_observed_at INTEGER,
   last_source TEXT,
   data_quality TEXT NOT NULL DEFAULT 'partial',
-  saved_at INTEGER NOT NULL
+  saved_at INTEGER NOT NULL,
+  risk_level TEXT,
+  security_score REAL,
+  risk_assessed_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_detected_at ON tokens(detected_at);
@@ -226,4 +229,4 @@ CREATE TABLE IF NOT EXISTS system_errors (
 
 CREATE INDEX IF NOT EXISTS idx_errors_occurred ON system_errors(occurred_at);
 
-INSERT INTO schema_meta(key, value) VALUES('version', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+INSERT INTO schema_meta(key, value) VALUES('version', '2') ON CONFLICT(key) DO UPDATE SET value = excluded.value;

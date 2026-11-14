@@ -1,0 +1,22 @@
+name: sync-from-upstream
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */3 * * *'
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy the upstream branch into this repository
+        run: |
+          git fetch --depth 1 https://github.com/daisukenakagawa-blip/jagler.git meme-radar
+          git rm -rq --ignore-unmatch .
+          git checkout FETCH_HEAD -- .
+          git checkout HEAD -- .github
+          git add -A
+          if git diff --cached --quiet; then echo "no changes"; exit 0; fi
+          git -c user.name="meme-radar-sync" -c user.email="meme-radar-sync@users.noreply.github.com" commit -q -m "sync: upstream $(git rev-parse --short FETCH_HEAD)"
+          git push

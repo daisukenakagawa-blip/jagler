@@ -63,13 +63,13 @@ function rateLimited(key: string, limit: number, windowMs: number): boolean {
 
 const TOKEN_LIST_COLS = `mint, name, symbol, primary_dex_id, primary_pool_address, first_pool_created_at, detected_at,
   detection_delay_sec, snapshot_stage, initial_price_usd, last_price_usd, last_liquidity_usd, last_fdv_usd,
-  last_market_cap_usd, last_volume_h24_usd, last_observed_at, last_source`;
+  last_market_cap_usd, last_volume_h24_usd, last_observed_at, last_source, risk_level, security_score`;
 
 async function getStatus(env: Env) {
   const db = env.DB;
   const now = Date.now();
   const d1 = now - 86_400_000;
-  const [runs, lastRun, lastOk, delay, totals, errors, gaps] = await db.batch([
+  const [runs, lastRun, lastOk, delay, totals, errors, gaps, risks] = await db.batch([
     db.prepare(
       `SELECT status, COUNT(*) AS n, COALESCE(SUM(tokens_new),0) AS tokens_new, COALESCE(SUM(tokens_skipped_budget),0) AS skipped,
               SUM(snapshots_written) AS snaps, SUM(snapshots_missing) AS snaps_missing, SUM(api_calls) AS api_calls
@@ -94,6 +94,9 @@ async function getStatus(env: Env) {
     db.prepare(
       `SELECT data_quality, COUNT(*) AS n FROM price_snapshots WHERE observed_at >= ?1 GROUP BY data_quality`,
     ).bind(d1),
+    db.prepare(
+      `SELECT COALESCE(risk_level, 'PENDING') AS level, COUNT(*) AS n FROM tokens WHERE detected_at >= ?1 GROUP BY 1`,
+    ).bind(d1),
   ]);
   const used = await writesUsedToday(db, now);
   return {
@@ -105,6 +108,7 @@ async function getStatus(env: Env) {
     detection_delay_24h: delay.results[0] ?? null,
     tracking_tokens: (totals.results[0] as { tracking: number } | undefined)?.tracking ?? 0,
     snapshot_quality_24h: gaps.results,
+    risk_levels_24h: risks.results,
     errors_24h: errors.results,
     write_budget: { used_today: used, budget: dailyBudget(env), d1_free_limit: 100_000 },
     stage_offsets_min: STAGE_OFFSETS_MIN,
@@ -141,6 +145,17 @@ async function listTokens(env: Env, url: URL) {
     where.push(`detected_at >= ?${binds.length + 1}`);
     binds.push(Date.now() - 86_400_000);
   }
+  const risk = url.searchParams.get('risk') ?? '';
+  if (['LOW', 'MEDIUM', 'HIGH', 'UNKNOWN'].includes(risk)) {
+    // 全件走査を避けるため直近 7 日に限定。UNKNOWN には未判定（NULL）も含める
+    where.push(`detected_at >= ?${binds.length + 1}`);
+    binds.push(Date.now() - 7 * 86_400_000);
+    if (risk === 'UNKNOWN') where.push(`(risk_level IS NULL OR risk_level = 'UNKNOWN')`);
+    else {
+      where.push(`risk_level = ?${binds.length + 1}`);
+      binds.push(risk);
+    }
+  }
   if (minLiq > 0) {
     where.push(`last_liquidity_usd >= ?${binds.length + 1}`);
     binds.push(minLiq);
@@ -157,23 +172,31 @@ async function listTokens(env: Env, url: URL) {
 
 async function tokenDetail(env: Env, mint: string) {
   const db = env.DB;
-  const [tok, pools, snaps, events] = await db.batch([
+  const [tok, pools, snaps, events, risk, holders] = await db.batch([
     db.prepare(`SELECT * FROM tokens WHERE mint = ?1`).bind(mint),
     db.prepare(`SELECT * FROM liquidity_pools WHERE mint = ?1 ORDER BY pool_created_at LIMIT 20`).bind(mint),
     db.prepare(`SELECT * FROM price_snapshots WHERE mint = ?1 ORDER BY stage`).bind(mint),
     db.prepare(`SELECT event_type, ref, source, observed_at FROM token_events WHERE mint = ?1 ORDER BY id LIMIT 50`).bind(mint),
+    db.prepare(`SELECT assessed_at, risk_level, security_score, evidence, ruleset_version FROM risk_assessments WHERE mint = ?1 ORDER BY assessed_at DESC LIMIT 1`).bind(mint),
+    db.prepare(`SELECT source, observed_at, top1_pct, top10_pct FROM holder_snapshots WHERE mint = ?1 ORDER BY observed_at DESC LIMIT 1`).bind(mint),
   ]);
+  const r = risk.results[0] as { evidence: string } | undefined;
+  let findings: unknown[] = [];
+  try {
+    findings = r ? (JSON.parse(r.evidence).findings ?? []) : [];
+  } catch {
+    findings = [];
+  }
   if (!tok.results[0]) return null;
   return {
     token: tok.results[0],
     pools: pools.results,
     snapshots: snaps.results,
     events: events.results,
-    // Phase 3 以降で取得する項目。現時点では取得処理が無いため「未取得」
-    not_collected: [
-      'minted_at', 'first_trade_at', 'holder_count', 'top_holder_pct', 'developer_wallet', 'mint_authority',
-      'freeze_authority', 'token_program', 'token_2022_extensions', 'lp_status', 'unique_buyers',
-    ],
+    risk: r ? { ...r, evidence: undefined, findings } : null,
+    holders: holders.results[0] ?? null,
+    // 取得処理がまだ無い項目（画面では「未取得」）
+    not_collected: ['minted_at', 'first_trade_at', 'holder_count', 'developer_wallet', 'lp_status', 'unique_buyers'],
     stage_offsets_min: STAGE_OFFSETS_MIN,
     generated_at: Date.now(),
   };

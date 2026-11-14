@@ -3,7 +3,7 @@
 // - migrations/0001_init.sql は `npm run gen:migration` でここから生成する
 // 時刻はすべて UTC の epoch ミリ秒 (INTEGER)。NULL は「未取得」を意味し、推測値は入れない。
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -39,7 +39,10 @@ export const SCHEMA_STATEMENTS: string[] = [
     last_observed_at INTEGER,
     last_source TEXT,
     data_quality TEXT NOT NULL DEFAULT 'partial',
-    saved_at INTEGER NOT NULL
+    saved_at INTEGER NOT NULL,
+    risk_level TEXT,
+    security_score REAL,
+    risk_assessed_at INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tokens_detected_at ON tokens(detected_at)`,
   `CREATE INDEX IF NOT EXISTS idx_tokens_next_snapshot ON tokens(next_snapshot_at) WHERE next_snapshot_at IS NOT NULL`,
@@ -226,6 +229,13 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_errors_occurred ON system_errors(occurred_at)`,
 ];
 
+/** v1 → v2: 稼働中の DB に列を追加する（新規 DB では CREATE TABLE に含まれるため不要） */
+const UPGRADE_V2 = [
+  `ALTER TABLE tokens ADD COLUMN risk_level TEXT`,
+  `ALTER TABLE tokens ADD COLUMN security_score REAL`,
+  `ALTER TABLE tokens ADD COLUMN risk_assessed_at INTEGER`,
+];
+
 let schemaReady = false;
 
 /** 冪等。isolate ごとに 1 回だけ確認し、未適用なら全文を適用する。 */
@@ -243,6 +253,13 @@ export async function ensureSchema(db: D1Database): Promise<void> {
     // schema_meta が無い = 初回
   }
   await db.batch(SCHEMA_STATEMENTS.map((s) => db.prepare(s)));
+  for (const sql of UPGRADE_V2) {
+    try {
+      await db.prepare(sql).run();
+    } catch {
+      // 列が既にある（新規作成直後、または途中まで適用済み）場合は無視してよい
+    }
+  }
   await db
     .prepare(
       `INSERT INTO schema_meta(key, value) VALUES('version', ?1)

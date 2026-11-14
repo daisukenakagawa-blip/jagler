@@ -1,6 +1,6 @@
 {
   "name": "meme-radar-ai",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Solana 新規トークンの自動検出・追跡（仮想検証専用。実資金の売買機能なし）",
   "scripts": {
     "dev": "vite",

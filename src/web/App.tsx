@@ -22,6 +22,8 @@ interface TokenRow {
   last_volume_h24_usd: number | null;
   last_observed_at: number | null;
   last_source: string | null;
+  risk_level: string | null;
+  security_score: number | null;
 }
 interface TokenList {
   tokens: TokenRow[];
@@ -49,8 +51,21 @@ interface Pool {
   quote_symbol: string | null;
   pool_created_at: number | null;
 }
+interface Finding {
+  check: string;
+  severity: 'HIGH' | 'MEDIUM' | 'INFO';
+  detail: string;
+}
 interface Detail {
-  token: TokenRow & { decimals: number | null; primary_pool_address: string | null };
+  token: TokenRow & {
+    decimals: number | null;
+    primary_pool_address: string | null;
+    token_program: string | null;
+    mint_authority_state: string | null;
+    freeze_authority_state: string | null;
+  };
+  risk: { assessed_at: number; risk_level: string; security_score: number | null; ruleset_version: string; findings: Finding[] } | null;
+  holders: { observed_at: number; top1_pct: number | null; top10_pct: number | null } | null;
   pools: Pool[];
   snapshots: Snapshot[];
   stage_offsets_min: number[];
@@ -64,6 +79,7 @@ interface Status {
   detection_delay_24h: { total: number; unknown: number; le30: number; le60: number; le180: number; le300: number } | null;
   tracking_tokens: number;
   snapshot_quality_24h: { data_quality: string; n: number }[];
+  risk_levels_24h?: { level: string; n: number }[];
   errors_24h: { occurred_at: number; component: string; source: string | null; http_status: number | null; message: string }[];
   write_budget: { used_today: number; budget: number; d1_free_limit: number };
 }
@@ -142,6 +158,17 @@ function Pct({ v }: { v: number | null }) {
   return <span className={v >= 0 ? 'up' : 'down'}>{fmtPct(v)}</span>;
 }
 
+const RISK_LABEL: Record<string, string> = { LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', UNKNOWN: 'UNKNOWN', PENDING: '未判定' };
+function RiskBadge({ level }: { level: string | null }) {
+  const l = level ?? 'PENDING';
+  return <span className={`risk risk-${l.toLowerCase()}`}>{RISK_LABEL[l] ?? l}</span>;
+}
+const AUTH_LABEL: Record<string, string> = { present: '残っている', revoked: '放棄済み' };
+const PROGRAM_LABEL: Record<string, string> = {
+  TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA: 'SPL Token（従来型）',
+  TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb: 'Token-2022',
+};
+
 function TokenItem({ t }: { t: TokenRow }) {
   const chg = pctChange(t.initial_price_usd, t.last_price_usd);
   return (
@@ -153,6 +180,7 @@ function TokenItem({ t }: { t: TokenRow }) {
         </div>
         <div className="row-sub">
           <span className="mono">{shortAddr(t.mint)}</span>
+          <RiskBadge level={t.risk_level} />
           {t.primary_dex_id && <span className="chip">{t.primary_dex_id}</span>}
           <span>検出 {fmtAgo(t.detected_at)}</span>
         </div>
@@ -235,6 +263,25 @@ function Dashboard() {
             </p>
           </section>
 
+          {s.risk_levels_24h && (
+            <section className="card">
+              <div className="label">リスク判定の内訳（24時間に検出した銘柄）</div>
+              <table className="kv">
+                <tbody>
+                  {['HIGH', 'MEDIUM', 'LOW', 'UNKNOWN', 'PENDING'].map((lv) => (
+                    <tr key={lv}>
+                      <th><RiskBadge level={lv} /></th>
+                      <td>{fmtInt(s.risk_levels_24h?.find((r) => r.level === lv)?.n ?? 0)} 件</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="note">
+                権限・Token-2022 拡張・保有集中だけを見たルール判定です。LOW でも安全は保証されません。開発者の売却や LP の状態は未検査です。
+              </p>
+            </section>
+          )}
+
           {b && (
             <section className="card">
               <div className="label">本日の D1 書き込み（UTC 0時リセット）</div>
@@ -255,7 +302,7 @@ function Dashboard() {
       </div>
       <a className="more" href="#/tokens">すべて見る</a>
       <p className="note">
-        表示はすべて外部 API の実測値です。リスク分析・仮想売買・収益予測は未実装で、本画面は投資判断の根拠になりません。
+        表示はすべて外部 API とオンチェーンの実測値です。仮想売買・収益予測は未実装で、本画面は投資判断の根拠になりません。
       </p>
     </>
   );
@@ -266,10 +313,11 @@ function Tokens() {
   const [applied, setApplied] = useState('');
   const [sort, setSort] = useState<'new' | 'liquidity'>('new');
   const [minLiq, setMinLiq] = useState(0);
+  const [risk, setRisk] = useState('');
   const [extra, setExtra] = useState<TokenRow[]>([]);
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   const [moreLoading, setMoreLoading] = useState(false);
-  const qs = `sort=${sort}${minLiq ? `&min_liq=${minLiq}` : ''}${applied ? `&q=${encodeURIComponent(applied)}` : ''}`;
+  const qs = `sort=${sort}${risk ? `&risk=${risk}` : ''}${minLiq ? `&min_liq=${minLiq}` : ''}${applied ? `&q=${encodeURIComponent(applied)}` : ''}`;
   const { data, error, loading, reload } = useApi<TokenList>(`/api/tokens?limit=50&${qs}`, 60_000);
 
   useEffect(() => {
@@ -325,6 +373,16 @@ function Tokens() {
             <option value={50000}>$50K 以上</option>
           </select>
         </label>
+        <label className="span2">
+          リスク判定
+          <select value={risk} onChange={(e) => setRisk(e.target.value)}>
+            <option value="">すべて</option>
+            <option value="HIGH">HIGH（危険銘柄）</option>
+            <option value="MEDIUM">MEDIUM</option>
+            <option value="LOW">LOW</option>
+            <option value="UNKNOWN">UNKNOWN・未判定</option>
+          </select>
+        </label>
       </div>
       <Stamp at={data?.generated_at} loading={loading} onReload={() => void reload()} />
       <Err msg={error} />
@@ -337,7 +395,7 @@ function Tokens() {
           {moreLoading ? '読み込み中…' : 'さらに読み込む'}
         </button>
       )}
-      <p className="note">スコア順表示は、スコアリング（Phase 3 以降）が未実装のため提供していません。</p>
+      <p className="note">リスク絞り込みは直近 7 日の検出分が対象です。期待収益スコア順は、予測モデル（Phase 5）が未実装のため提供していません。</p>
     </>
   );
 }
@@ -380,10 +438,22 @@ function TokenDetail({ mint }: { mint: string }) {
       {t && data && (
         <>
           <section className="card">
-            <div className="label">リスク判定</div>
-            <div className="big unknown">UNKNOWN</div>
+            <div className="label">リスク判定{data.risk ? `（${fmtTime(data.risk.assessed_at)} 時点 / ${data.risk.ruleset_version}）` : ''}</div>
+            <div className={`big risk-text-${(data.risk?.risk_level ?? 'unknown').toLowerCase()}`}>{data.risk?.risk_level ?? 'UNKNOWN'}</div>
+            {data.risk?.security_score != null && <div className="sub">Security Score {data.risk.security_score} / 100</div>}
+            {!data.risk && <p className="note">まだ判定されていません（検出から 1 時間以内に順次判定。RPC 障害時は未判定のまま残ります）。</p>}
+            {data.risk && (
+              <ul className="findings">
+                {data.risk.findings.map((f, i) => (
+                  <li key={i} className={`sev-${f.severity.toLowerCase()}`}>
+                    <span className="sev">{f.severity === 'INFO' ? '確認' : f.severity}</span>
+                    <span className="small">{f.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             <p className="note">
-              リスク分析（Mint/Freeze 権限、保有者集中、LP 状況など）は未実装です。必要な情報が不足しているため判定できません。安全性は一切確認されていません。
+              判定は取得できた情報の範囲に限られます。LOW でも安全を保証せず、詐欺リスクを排除するものではありません。
             </p>
           </section>
 
@@ -409,12 +479,17 @@ function TokenDetail({ mint }: { mint: string }) {
                 <tr><th>検出までの遅延</th><td><Val v={fmtDelay(t.detection_delay_sec)} /></td></tr>
                 <tr><th>DEX</th><td><Val v={t.primary_dex_id ?? NA} /></td></tr>
                 <tr><th>小数桁</th><td><Val v={fmtInt(t.decimals)} /></td></tr>
-                {['発行時刻', '初回取引時刻', '保有者数', '上位保有者の割合', '開発者ウォレット', 'Mint権限', 'Freeze権限', 'Token Program / Token-2022拡張', 'LP管理状況', 'ユニーク購入者数（追跡時）'].map((k) => (
+                <tr><th>Token Program</th><td><Val v={t.token_program ? (PROGRAM_LABEL[t.token_program] ?? t.token_program) : NA} /></td></tr>
+                <tr><th>Mint権限</th><td className={t.mint_authority_state === 'present' ? 'warn' : undefined}><Val v={t.mint_authority_state ? AUTH_LABEL[t.mint_authority_state] : NA} /></td></tr>
+                <tr><th>Freeze権限</th><td className={t.freeze_authority_state === 'present' ? 'warn' : undefined}><Val v={t.freeze_authority_state ? AUTH_LABEL[t.freeze_authority_state] : NA} /></td></tr>
+                <tr><th>最大口座の保有割合</th><td><Val v={data.holders?.top1_pct != null ? `${data.holders.top1_pct.toFixed(1)}%` : NA} /></td></tr>
+                <tr><th>上位10口座の合計</th><td><Val v={data.holders?.top10_pct != null ? `${data.holders.top10_pct.toFixed(1)}%` : NA} /></td></tr>
+                {['発行時刻', '初回取引時刻', '保有者数', '開発者ウォレット', 'LP管理状況', 'ユニーク購入者数（追跡時）'].map((k) => (
                   <tr key={k}><th>{k}</th><td><span className="na">{NA}</span></td></tr>
                 ))}
               </tbody>
             </table>
-            <p className="note">「未取得」の項目はオンチェーン取得（Phase 3）が未実装のためです。推測値は表示しません。</p>
+            <p className="note">「未取得」は取得処理が未実装、または取得に失敗した項目です。推測値は表示しません。最大口座はプール等の可能性があります。</p>
           </section>
 
           <section className="card">
@@ -536,9 +611,10 @@ function System() {
             <div className="label">既知の制限</div>
             <ul className="bullets">
               <li>検出は GeckoTerminal の新規プール一覧（毎分・先頭20件）に依存します。発行直後や一覧から流れた銘柄は検出できません。</li>
-              <li>D1 無料枠（書き込み10万行/日）を守るため、新規保存は 1 日に均等配分した少数（既定で約 2,200 銘柄/日）に制限しています。全銘柄の網羅ではなく標本です。</li>
+              <li>D1 無料枠（書き込み10万行/日）を守るため、新規保存は 1 日に均等配分した少数（既定で約 1,900 銘柄/日）に制限しています。全銘柄の網羅ではなく標本です。</li>
               <li>Cloudflare 無料プランは稼働率を保証しません。定期実行が遅延・欠落することがあります。</li>
-              <li>通知（Web Push）、リスク分析、仮想売買、予測モデルは未実装です。</li>
+              <li>リスク判定は権限・Token-2022 拡張・保有集中のみ。開発者ウォレット、LP 状態、ウォッシュトレード等は未検査です。</li>
+              <li>通知（Web Push）、仮想売買、予測モデルは未実装です。</li>
             </ul>
           </section>
         </>
@@ -589,7 +665,7 @@ function Settings() {
       <section className="card">
         <div className="label">未実装の画面</div>
         <ul className="bullets">
-          <li>AI監視候補・危険銘柄一覧（Phase 3: オンチェーンリスク分析）</li>
+          <li>AI監視候補（スコアリングの残り: Momentum / Expected Return）</li>
           <li>仮想売買履歴・仮想ポートフォリオ（Phase 4）</li>
           <li>収益分析・予測モデルの検証結果（Phase 5）</li>
           <li>通知・仮想売買の条件設定（Phase 4〜6）</li>

@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearApiCache, handleApi } from '../src/worker/api';
 import { FINAL_STAGE, detectionDelaySec, newTokenAllowance, nextSnapshotAt, runCleanup, runIngestion } from '../src/worker/ingest';
+import { assess, parseLargestAccounts, parseMintAccount } from '../src/worker/risk';
 import { SCHEMA_STATEMENTS, ensureSchema, resetSchemaCache } from '../src/worker/schema';
 import { dsTokensUrl, parseDsTokens, parseGtNewPools } from '../src/worker/sources';
 import type { Env } from '../src/worker/types';
 import { fetchJson, isSolanaAddress, num, safeEqual } from '../src/worker/util';
-import { USDC, WSOL, addr, dsPair, gtPool, gtResponse, jsonRes, makeD1, mockFetch } from './helpers';
+import { USDC, WSOL, addr, dsPair, gtPool, gtResponse, jsonRes, makeD1, mockFetch, rpcLargest, rpcMint } from './helpers';
 
 const T0 = Date.UTC(2026, 10, 14, 6, 0, 0);
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -56,6 +57,20 @@ describe('util', () => {
     await expect(fetchJson('x', 'https://example.test/', { retries: 2 })).rejects.toMatchObject({ status: 429 });
     expect(n).toBe(1);
   });
+  it('fetchJson: retries429 指定時だけ 429 を待って再試行し、POST 本文を送れる', async () => {
+    let n = 0;
+    vi.stubGlobal('fetch', async () => (++n <= 2 ? jsonRes({}, 429) : jsonRes({ ok: 1 })));
+    expect(await fetchJson('x', 'https://example.test/', { retries429: 2, retries: 0 })).toEqual({ ok: 1 });
+    expect(n).toBe(3);
+    n = 0;
+    vi.stubGlobal('fetch', async () => (n++, jsonRes({}, 429)));
+    await expect(fetchJson('x', 'https://example.test/', { retries429: 2, retries: 0 })).rejects.toMatchObject({ status: 429 });
+    expect(n).toBe(3); // 上限で打ち切る
+    let seen: RequestInit | undefined;
+    vi.stubGlobal('fetch', async (_u: unknown, init: RequestInit) => ((seen = init), jsonRes({})));
+    await fetchJson('x', 'https://example.test/', { body: { a: 1 } });
+    expect(seen).toMatchObject({ method: 'POST', body: '{"a":1}' });
+  }, 20_000);
 });
 
 describe('GeckoTerminal 正規化', () => {
@@ -125,7 +140,64 @@ describe('スケジュール', () => {
   });
 });
 
+describe('リスク判定（ルール v1）', () => {
+  const dist = parseLargestAccounts(rpcLargest(['800', '20', '10']), '1000');
+  it('RPC 応答の解析: 権限・拡張・集中度', () => {
+    const m = parseMintAccount(rpcMint({ mintAuthority: addr(1), token2022: true, extensions: [{ extension: 'transferHook', state: {} }] }));
+    expect(m).toMatchObject({ isToken2022: true, mintAuthority: addr(1), freezeAuthority: null, decimals: 6, extensions: [{ name: 'transferHook' }] });
+    expect(dist).toMatchObject({ top1Pct: 80, top10Pct: 83, top2to10Pct: 3, accounts: 3 });
+    expect(parseMintAccount({ result: { value: null } })).toBeNull();
+    expect(parseMintAccount({ result: { value: { data: { parsed: { type: 'account' } } } } })).toBeNull();
+    expect(parseMintAccount('garbage')).toBeNull();
+    expect(parseLargestAccounts(rpcLargest(['1']), null)).toBeNull();
+    expect(parseLargestAccounts(rpcLargest([]), '100')).toBeNull();
+  });
+  it('権限が放棄済みで分散していれば LOW（ただし未検査項目を必ず明記）', () => {
+    const a = assess(parseMintAccount(rpcMint()), dist);
+    expect(a.level).toBe('LOW');
+    expect(a.score).toBe(100);
+    expect(a.findings.some((f) => f.check === 'not_checked')).toBe(true);
+  });
+  it('Mint 権限・Freeze 権限が残っていれば HIGH', () => {
+    expect(assess(parseMintAccount(rpcMint({ mintAuthority: addr(1) })), dist).level).toBe('HIGH');
+    const a = assess(parseMintAccount(rpcMint({ freezeAuthority: addr(2) })), dist);
+    expect(a.level).toBe('HIGH');
+    expect(a.findings.find((f) => f.check === 'freeze_authority')?.detail).toContain(addr(2));
+  });
+  it('Token-2022: 危険な拡張は HIGH、転送手数料・未知の拡張は MEDIUM、メタデータ等は影響なし', () => {
+    const t22 = (extensions: unknown[]) => assess(parseMintAccount(rpcMint({ token2022: true, extensions })), dist).level;
+    expect(t22([{ extension: 'permanentDelegate', state: {} }])).toBe('HIGH');
+    expect(t22([{ extension: 'nonTransferable', state: {} }])).toBe('HIGH');
+    expect(t22([{ extension: 'defaultAccountState', state: { accountState: 'frozen' } }])).toBe('HIGH');
+    expect(t22([{ extension: 'transferFeeConfig', state: { newerTransferFee: { transferFeeBasisPoints: 2500 } } }])).toBe('HIGH');
+    expect(t22([{ extension: 'transferFeeConfig', state: { newerTransferFee: { transferFeeBasisPoints: 100 } } }])).toBe('MEDIUM');
+    expect(t22([{ extension: 'somethingNew', state: {} }])).toBe('MEDIUM');
+    expect(t22([{ extension: 'tokenMetadata', state: {} }, { extension: 'metadataPointer', state: {} }])).toBe('LOW');
+  });
+  it('2〜10位の合計が 30% 以上なら MEDIUM。最大口座だけが大きい場合は格上げしない', () => {
+    expect(assess(parseMintAccount(rpcMint()), parseLargestAccounts(rpcLargest(['500', '200', '150']), '1000')).level).toBe('MEDIUM');
+    expect(assess(parseMintAccount(rpcMint()), parseLargestAccounts(rpcLargest(['950', '10']), '1000')).level).toBe('LOW');
+  });
+  it('情報が取れなければ UNKNOWN、保有者だけ取れなければ未取得と明記して判定', () => {
+    expect(assess(null, null)).toMatchObject({ level: 'UNKNOWN', score: null });
+    const a = assess(parseMintAccount(rpcMint()), null);
+    expect(a.level).toBe('LOW');
+    expect(a.findings.find((f) => f.check === 'holder_concentration')?.detail).toContain('未取得');
+  });
+});
+
 describe('スキーマ', () => {
+  it('v1 の既存 DB に列が追加される（稼働中 DB のアップグレード）', async () => {
+    const env = makeEnv();
+    env.DB.raw.exec(`CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO schema_meta VALUES('version','1');
+      CREATE TABLE tokens (mint TEXT PRIMARY KEY, detected_at INTEGER NOT NULL, next_snapshot_at INTEGER);
+      INSERT INTO tokens VALUES('keep-me', 1, NULL);`);
+    await ensureSchema(env.DB);
+    const cols = (env.DB.raw.prepare(`PRAGMA table_info(tokens)`).all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining(['risk_level', 'security_score', 'risk_assessed_at']));
+    expect(count(env, `SELECT COUNT(*) n FROM tokens`)).toBe(1);
+    expect((env.DB.raw.prepare(`SELECT value v FROM schema_meta`).get() as { v: string }).v).toBe('2');
+  });
   it('必須 14 テーブルがすべて作成され、再実行しても壊れない', async () => {
     const env = makeEnv();
     await ensureSchema(env.DB);
@@ -150,9 +222,9 @@ describe('収集パイプライン', () => {
 
     const r1 = await runIngestion(env, T0);
     expect(r1.status).toBe('ok');
-    expect(r1.stats).toMatchObject({ poolsSeen: 2, tokensNew: 2, snapshotsWritten: 2, apiCalls: 1 });
+    expect(r1.stats).toMatchObject({ poolsSeen: 2, tokensNew: 2, snapshotsWritten: 2 });
     const tok = env.DB.raw.prepare(`SELECT * FROM tokens WHERE mint = ?`).get(addr(1001)) as Record<string, unknown>;
-    expect(tok).toMatchObject({ detected_at: T0, detection_delay_sec: 20, first_pool_created_at: T0 - 20_000, snapshot_stage: 0, next_snapshot_at: T0 + 300_000, initial_price_usd: 0.0000123, last_liquidity_usd: 8000.5, minted_at: null, mint_authority_state: null });
+    expect(tok).toMatchObject({ detected_at: T0, detection_delay_sec: 20, first_pool_created_at: T0 - 20_000, snapshot_stage: 0, next_snapshot_at: T0 + 300_000, initial_price_usd: 0.0000123, last_liquidity_usd: 8000.5, minted_at: null });
 
     const r2 = await runIngestion(env, T0 + 60_000);
     expect(r2.stats.tokensNew).toBe(0);
@@ -251,7 +323,7 @@ describe('収集パイプライン', () => {
     const run = env.DB.raw.prepare(`SELECT * FROM ingestion_runs ORDER BY id DESC LIMIT 1`).get() as Record<string, unknown>;
     expect(run.status).toBe('failed');
     expect(String(run.error_summary)).toContain('network down');
-    expect(count(env, `SELECT COUNT(*) n FROM system_errors`)).toBe(2);
+    expect(count(env, `SELECT COUNT(*) n FROM system_errors`)).toBe(2); // discover / follow_up（判定済みなので RPC は呼ばれない）
   });
 
   it('書き込み予算: 85% 超で新規保存を止め、100% で全停止する', async () => {
@@ -275,17 +347,17 @@ describe('収集パイプライン', () => {
   });
 
   it('新規保存は 1 日に均等配分される（早い時間帯に枠を使い切らない）', async () => {
-    // 予算 1000 行 → 新規枠 850 行 ÷ 30 行/銘柄 ÷ 1440 分。06:00 UTC（361 分経過）時点の累計許容は 7 銘柄
-    expect(newTokenAllowance(T0, 1000, 0)).toBe(7);
-    expect(newTokenAllowance(T0, 1000, 7)).toBe(0);
+    // 予算 1000 行 → 新規枠 850 行 ÷ 36 行/銘柄 ÷ 1440 分。06:00 UTC（361 分経過）時点の累計許容は 5 銘柄
+    expect(newTokenAllowance(T0, 1000, 0)).toBe(5);
+    expect(newTokenAllowance(T0, 1000, 5)).toBe(0);
     expect(newTokenAllowance(T0 - 6 * 3600_000, 1000, 0)).toBe(0); // 日付が変わった直後
-    expect(newTokenAllowance(T0, 80_000, 0)).toBeGreaterThan(500);
+    expect(newTokenAllowance(T0, 80_000, 0)).toBeGreaterThan(400);
     const env = makeEnv({ DAILY_WRITE_BUDGET: '1000', MAX_NEW_TOKENS_PER_RUN: '20' });
     vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse(Array.from({ length: 10 }, (_, i) => gtPool(i + 1, iso(T0))))) }).fn);
     const r1 = await runIngestion(env, T0);
-    expect(r1.stats).toMatchObject({ tokensNew: 7, tokensSkippedBudget: 3 });
+    expect(r1.stats).toMatchObject({ tokensNew: 5, tokensSkippedBudget: 5 });
     const r2 = await runIngestion(env, T0 + 60_000);
-    expect(r2.stats).toMatchObject({ tokensNew: 0, tokensSkippedBudget: 3 }); // 枠が回復するまで見送り
+    expect(r2.stats).toMatchObject({ tokensNew: 0, tokensSkippedBudget: 5 }); // 枠が回復するまで見送り
   });
 
   it('前日の書き込みは当日の予算に数えない（UTC 0時リセット）', async () => {
@@ -309,6 +381,71 @@ describe('収集パイプライン', () => {
     expect(count(env, `SELECT COUNT(*) n FROM price_snapshots`)).toBe(1);
     expect(count(env, `SELECT COUNT(*) n FROM liquidity_pools`)).toBe(1);
     expect(count(env, `SELECT COUNT(*) n FROM ingestion_runs WHERE job='cleanup' AND status='ok'`)).toBe(1);
+  });
+});
+
+describe('リスク判定の自動実行', () => {
+  it('検出した銘柄を判定して根拠・時刻つきで保存し、API で返す', async () => {
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const now = Date.now();
+    const f = mockFetch({
+      gt: () => jsonRes(gtResponse([gtPool(1, iso(now - 20_000)), gtPool(2, iso(now - 30_000))])),
+      rpc: (method, params) =>
+        jsonRes(method === 'getAccountInfo' ? rpcMint(params[0] === addr(1001) ? { freezeAuthority: addr(9) } : {}) : rpcLargest(['900000000000000', '1000000000000'])),
+    });
+    vi.stubGlobal('fetch', f.fn);
+    const r = await runIngestion(env, now);
+    expect(r.status).toBe('ok');
+    const t = (m: string) => env.DB.raw.prepare(`SELECT * FROM tokens WHERE mint = ?`).get(m) as Record<string, unknown>;
+    expect(t(addr(1001))).toMatchObject({ risk_level: 'HIGH', freeze_authority_state: 'present', mint_authority_state: 'revoked', risk_assessed_at: now, token_program: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' });
+    expect(t(addr(1002))).toMatchObject({ risk_level: 'LOW', security_score: 100 });
+    expect(count(env, `SELECT COUNT(*) n FROM risk_assessments`)).toBe(2);
+    expect(count(env, `SELECT COUNT(*) n FROM holder_snapshots WHERE top1_pct = 90`)).toBe(2);
+
+    await runIngestion(env, now + 60_000); // 判定済みは再判定しない
+    expect(count(env, `SELECT COUNT(*) n FROM risk_assessments`)).toBe(2);
+
+    const d = (await (await handleApi(new Request(`https://app.test/api/tokens/${addr(1001)}`), env, ctx)).json()) as { risk: { risk_level: string; findings: { check: string; severity: string }[] }; holders: { top1_pct: number } };
+    expect(d.risk.risk_level).toBe('HIGH');
+    expect(d.risk.findings).toContainEqual(expect.objectContaining({ check: 'freeze_authority', severity: 'HIGH' }));
+    expect(d.holders.top1_pct).toBe(90);
+    clearApiCache();
+    const high = (await (await handleApi(new Request('https://app.test/api/tokens?risk=HIGH'), env, ctx)).json()) as { tokens: { mint: string }[] };
+    expect(high.tokens.map((x) => x.mint)).toEqual([addr(1001)]);
+  });
+
+  it('RPC 障害時は判定を書かず未判定のまま残し、エラーを記録して次回再試行する', async () => {
+    const env = makeEnv();
+    const now = Date.now();
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now))])), rpc: () => jsonRes({}, 403) }).fn);
+    const r = await runIngestion(env, now);
+    expect(r.status).toBe('partial');
+    expect(count(env, `SELECT COUNT(*) n FROM tokens WHERE risk_level IS NULL`)).toBe(1);
+    expect(count(env, `SELECT COUNT(*) n FROM risk_assessments`)).toBe(0);
+    expect(count(env, `SELECT COUNT(*) n FROM system_errors WHERE source='solana_rpc' AND http_status=403`)).toBe(1);
+    const unk = (await (await handleApi(new Request('https://app.test/api/tokens?risk=UNKNOWN'), env, ctx)).json()) as { tokens: unknown[] };
+    expect(unk.tokens).toHaveLength(1); // 未判定は UNKNOWN として絞り込める
+
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes({ data: [] }) }).fn);
+    await runIngestion(env, now + 60_000);
+    expect(count(env, `SELECT COUNT(*) n FROM tokens WHERE risk_level = 'LOW'`)).toBe(1);
+  });
+
+  it('RPC がエラー本文（JSON-RPC error）を返した場合も失敗として扱う', async () => {
+    const env = makeEnv();
+    const now = Date.now();
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now))])), rpc: () => jsonRes({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'Too many requests' } }) }).fn);
+    const r = await runIngestion(env, now);
+    expect(r.errors.map((e) => e.component)).toEqual(['risk']);
+    expect(count(env, `SELECT COUNT(*) n FROM risk_assessments`)).toBe(0);
+  });
+
+  it('Mint 口座が存在しない場合は UNKNOWN として記録する', async () => {
+    const env = makeEnv();
+    const now = Date.now();
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now))])), rpc: () => jsonRes({ jsonrpc: '2.0', id: 1, result: { value: null } }) }).fn);
+    await runIngestion(env, now);
+    expect((env.DB.raw.prepare(`SELECT risk_level r, security_score s FROM tokens`).get() as Record<string, unknown>)).toMatchObject({ r: 'UNKNOWN', s: null });
   });
 });
 
@@ -337,7 +474,7 @@ describe('API', () => {
     expect(detail.token.mint).toBe(addr(1001));
     expect(detail.snapshots).toHaveLength(1);
     expect(detail.pools).toHaveLength(1);
-    expect(detail.not_collected).toContain('mint_authority');
+    expect(detail.not_collected).toContain('developer_wallet');
 
     const s = (await (await get(env, '/api/status')).json()) as { last_run: { status: string }; detection_delay_24h: Record<string, number>; write_budget: { used_today: number } };
     expect(s.last_run.status).toBe('ok');

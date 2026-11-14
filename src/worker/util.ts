@@ -67,24 +67,45 @@ export class HttpError extends Error {
 export async function fetchJson(
   source: string,
   url: string,
-  opts: { timeoutMs?: number; retries?: number; headers?: Record<string, string> } = {},
+  opts: {
+    timeoutMs?: number;
+    retries?: number;
+    /** 429 のときだけ行う追加の再試行回数（待機 1.5 秒 × 回数）。既定 0 */
+    retries429?: number;
+    headers?: Record<string, string>;
+    /** 指定すると JSON を POST する */
+    body?: unknown;
+  } = {},
   counter?: { apiCalls: number },
 ): Promise<unknown> {
   const timeoutMs = opts.timeoutMs ?? 8000;
   const retries = opts.retries ?? 1;
   let lastErr: HttpError | null = null;
+  let left429 = opts.retries429 ?? 0;
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
     if (counter) counter.apiCalls++;
     try {
       const res = await fetch(url, {
-        headers: { accept: 'application/json', ...(opts.headers ?? {}) },
+        method: opts.body === undefined ? 'GET' : 'POST',
+        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        headers: {
+          accept: 'application/json',
+          ...(opts.body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(opts.headers ?? {}),
+        },
         signal: AbortSignal.timeout(timeoutMs),
         // Workers ランタイムは redirect:'error' 非対応。manual にして 3xx は res.ok=false で失敗扱い（リダイレクト先へは行かない）
         redirect: 'manual',
       });
       if (res.ok) return await res.json();
       lastErr = new HttpError(source, res.status, `HTTP ${res.status}`);
+      if (res.status === 429 && left429 > 0) {
+        left429--;
+        attempt--; // 429 用の再試行は通常の再試行回数を消費しない
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
       if (res.status < 500) break;
     } catch (e) {
       lastErr = new HttpError(source, null, e instanceof Error ? e.message.slice(0, 200) : 'fetch failed');
