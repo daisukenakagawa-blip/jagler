@@ -8,6 +8,7 @@ export const DEFAULT_RPC = 'https://api.mainnet-beta.solana.com';
 /** 公式の公開 RPC は Cloudflare からの接続を 403 で拒否することがある（本番で確認）ため、キー不要の公開 RPC を予備にする */
 export const FALLBACK_RPC = 'https://solana-rpc.publicnode.com';
 let preferredRpc = 0;
+let holdersPausedUntil = 0;
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
@@ -227,11 +228,14 @@ export async function runRiskChecks(
     }
     let holders: HolderInfo | null = null;
     let holderErr = false;
-    if (info) {
+    if (info && now >= holdersPausedUntil) {
       try {
         holders = parseLargestAccounts(await rpc(env, 'getTokenLargestAccounts', [mint, { commitment: 'confirmed' }], stats), info.supply);
       } catch (e) {
         holderErr = true; // 権限情報だけで判定を続ける（保有者分布は未取得と明示される）
+        // 公開 RPC はこのメソッドを提供しないことがある（本番で 403 を確認）。
+        // 毎分同じエラーを積まないよう、1 時間は呼び出しを止めて最初の 1 回だけ記録する
+        holdersPausedUntil = now + 3_600_000;
         firstError ??= e;
       }
     }
@@ -276,4 +280,5 @@ export async function runRiskChecks(
 /** テスト用 */
 export function resetRpcPreference(): void {
   preferredRpc = 0;
+  holdersPausedUntil = 0;
 }
