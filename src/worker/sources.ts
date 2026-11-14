@@ -3,6 +3,7 @@ import { int, isSolanaAddress, num, parseIsoMs, str } from './util';
 
 export const GT_DEFAULT_BASE = 'https://api.geckoterminal.com/api/v2';
 export const DS_DEFAULT_BASE = 'https://api.dexscreener.com';
+export const DP_DEFAULT_BASE = 'https://api.dexpaprika.com';
 
 /** 「新規トークン」側ではなく建値側とみなす既知のミント */
 export const QUOTE_MINTS = new Set([
@@ -107,7 +108,51 @@ export function dsTokensUrl(base: string, mints: string[]): string {
   return `${base}/tokens/v1/solana/${safe.join(',')}`;
 }
 
+export function dpNewPoolsUrl(base: string): string {
+  return `${base}/networks/solana/pools/search?order_by=created_at&sort=desc&limit=20`;
+}
+
+/**
+ * DexPaprika /networks/solana/pools/search（作成日時の新しい順）の応答を正規化する。
+ * GeckoTerminal が使えないときの予備の検出元。実測では索引に約 1 時間の遅れがある。
+ * - トークン名・シンボルは含まれない（未取得のまま。後で DEX Screener から補う）
+ * - price_usd はどちらのトークンの価格か仕様上あいまいなので使わない
+ * - 片方だけが既知の建値（SOL/USDC/USDT）であるプールのみ採用する
+ */
+export function parseDpNewPools(json: unknown): DetectedPool[] {
+  const results = obj(json).results;
+  if (!Array.isArray(results)) return [];
+  const out: DetectedPool[] = [];
+  for (const raw of results) {
+    const p = obj(raw);
+    const poolAddress = str(p.id);
+    const ids = (Array.isArray(p.tokens) ? p.tokens : []).map((t) => str(obj(t).id));
+    if (p.chain !== 'solana' || !isSolanaAddress(poolAddress) || ids.length !== 2) continue;
+    const [a, b] = ids;
+    if (!isSolanaAddress(a) || !isSolanaAddress(b)) continue;
+    const aq = QUOTE_MINTS.has(a);
+    const bq = QUOTE_MINTS.has(b);
+    if (aq === bq) continue;
+    out.push({
+      poolAddress,
+      mint: aq ? b : a,
+      name: null,
+      symbol: null,
+      decimals: null,
+      dexId: str(p.dex_id, 60),
+      dexName: str(p.dex_name, 80),
+      quoteMint: aq ? a : b,
+      quoteSymbol: null,
+      poolCreatedAt: parseIsoMs(p.created_at),
+      market: { ...EMPTY_MARKET, liquidityUsd: num(p.liquidity_usd), volumeH24Usd: num(p.volume_usd_24h) },
+    });
+  }
+  return out;
+}
+
 export interface DsQuote {
+  name: string | null;
+  symbol: string | null;
   poolAddress: string | null;
   dexId: string | null;
   market: MarketData;
@@ -132,6 +177,8 @@ export function parseDsTokens(json: unknown, mints: string[]): Map<string, DsQuo
     const liquidityUsd = num(obj(p.liquidity).usd);
     const pairAddress = str(p.pairAddress);
     const q: DsQuote = {
+      name: str(obj(p.baseToken).name),
+      symbol: str(obj(p.baseToken).symbol, 40),
       poolAddress: isSolanaAddress(pairAddress) ? pairAddress : null,
       dexId: str(p.dexId, 60),
       market: {

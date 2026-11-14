@@ -91,6 +91,8 @@ export async function fetchJson(
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         headers: {
           accept: 'application/json',
+          // Workers の fetch は既定で User-Agent を付けない。UA 無しを厳しく制限する API があるため明示する
+          'user-agent': 'meme-radar-ai/0.4 (Cloudflare Workers; read-only market data collector)',
           ...(opts.body === undefined ? {} : { 'content-type': 'application/json' }),
           ...(opts.headers ?? {}),
         },

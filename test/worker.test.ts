@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearApiCache, handleApi } from '../src/worker/api';
 import { FINAL_STAGE, detectionDelaySec, newTokenAllowance, nextSnapshotAt, runCleanup, runIngestion } from '../src/worker/ingest';
-import { assess, parseLargestAccounts, parseMintAccount } from '../src/worker/risk';
+import { assess, parseLargestAccounts, parseMintAccount, resetRpcPreference } from '../src/worker/risk';
 import { SCHEMA_STATEMENTS, ensureSchema, resetSchemaCache } from '../src/worker/schema';
-import { dsTokensUrl, parseDsTokens, parseGtNewPools } from '../src/worker/sources';
+import { dsTokensUrl, parseDpNewPools, parseDsTokens, parseGtNewPools } from '../src/worker/sources';
 import type { Env } from '../src/worker/types';
 import { fetchJson, isSolanaAddress, num, safeEqual } from '../src/worker/util';
-import { USDC, WSOL, addr, dsPair, gtPool, gtResponse, jsonRes, makeD1, mockFetch, rpcLargest, rpcMint } from './helpers';
+import { USDC, WSOL, addr, dpPool, dsPair, gtPool, gtResponse, jsonRes, makeD1, mockFetch, rpcLargest, rpcMint } from './helpers';
 
 const T0 = Date.UTC(2026, 10, 14, 6, 0, 0);
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -22,6 +22,7 @@ const count = (env: { DB: ReturnType<typeof makeD1> }, sql: string) =>
 beforeEach(() => {
   resetSchemaCache();
   clearApiCache();
+  resetRpcPreference();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -104,6 +105,24 @@ describe('GeckoTerminal 正規化', () => {
     expect(parseGtNewPools(null)).toEqual([]);
     expect(parseGtNewPools({ data: 'x' })).toEqual([]);
     expect(parseGtNewPools({ data: [null, 1, {}] })).toEqual([]);
+  });
+});
+
+describe('DexPaprika 正規化（予備の検出元）', () => {
+  it('建値でない側を対象にし、名前と価格は未取得のままにする', () => {
+    const r = parseDpNewPools({ results: [dpPool(1, iso(T0)), dpPool(2, iso(T0), true)] });
+    expect(r.map((p) => p.mint)).toEqual([addr(1001), addr(1002)]);
+    expect(r[0]).toMatchObject({ poolAddress: addr(2001), dexId: 'pumpfun', name: null, symbol: null, quoteMint: WSOL, poolCreatedAt: T0 });
+    expect(r[0].market).toMatchObject({ priceUsd: null, liquidityUsd: 1234.5, volumeH24Usd: 179.5, fdvUsd: null });
+  });
+  it('建値同士・非建値同士・他チェーン・不正形式は捨てる', () => {
+    const both = { ...dpPool(3, iso(T0)), tokens: [{ id: WSOL }, { id: USDC }] };
+    const none = { ...dpPool(4, iso(T0)), tokens: [{ id: addr(1) }, { id: addr(2) }] };
+    const eth = { ...dpPool(5, iso(T0)), chain: 'ethereum' };
+    const bad = { ...dpPool(6, iso(T0)), id: 'x' };
+    expect(parseDpNewPools({ results: [both, none, eth, bad, null] })).toEqual([]);
+    expect(parseDpNewPools({ pools: [dpPool(1, iso(T0))] })).toEqual([]);
+    expect(parseDpNewPools(null)).toEqual([]);
   });
 });
 
@@ -323,7 +342,7 @@ describe('収集パイプライン', () => {
     const run = env.DB.raw.prepare(`SELECT * FROM ingestion_runs ORDER BY id DESC LIMIT 1`).get() as Record<string, unknown>;
     expect(run.status).toBe('failed');
     expect(String(run.error_summary)).toContain('network down');
-    expect(count(env, `SELECT COUNT(*) n FROM system_errors`)).toBe(2); // discover / follow_up（判定済みなので RPC は呼ばれない）
+    expect(count(env, `SELECT COUNT(*) n FROM system_errors`)).toBe(3); // discover / discover_fallback / follow_up（判定済みなので RPC は呼ばれない）
   });
 
   it('書き込み予算: 85% 超で新規保存を止め、100% で全停止する', async () => {
@@ -384,7 +403,65 @@ describe('収集パイプライン', () => {
   });
 });
 
+describe('検出元の切り替え', () => {
+  it('GeckoTerminal が 429 のとき DexPaprika で検出し、価格と名前は DEX Screener の実測値で補う', async () => {
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const f = mockFetch({
+      gt: () => jsonRes({}, 429),
+      dp: () => jsonRes({ results: [dpPool(1, iso(T0 - 3_600_000)), dpPool(2, iso(T0 - 3_500_000), true)] }),
+      ds: () => jsonRes([dsPair(addr(1001), addr(2001), '0.0005', 4321)]),
+    });
+    vi.stubGlobal('fetch', f.fn);
+    const r = await runIngestion(env, T0);
+    expect(r.status).toBe('partial'); // 主系の失敗は隠さない
+    expect(r.errors).toEqual([expect.objectContaining({ component: 'discover_primary', source: 'geckoterminal', status: 429 })]);
+    expect(r.stats.tokensNew).toBe(2);
+    const t = (m: string) => env.DB.raw.prepare(`SELECT * FROM tokens WHERE mint = ?`).get(m) as Record<string, unknown>;
+    expect(t(addr(1001))).toMatchObject({ detection_source: 'dexpaprika', detection_delay_sec: 3600, symbol: 'T', initial_price_usd: 0.0005, last_liquidity_usd: 4321, last_source: 'dexscreener' });
+    // DEX Screener にペアが無い銘柄: 価格は未取得のまま、流動性だけ DexPaprika の値
+    expect(t(addr(1002))).toMatchObject({ detection_source: 'dexpaprika', symbol: null, initial_price_usd: null, last_liquidity_usd: 1234.5, last_source: 'dexpaprika' });
+    const s0 = env.DB.raw.prepare(`SELECT source, price_usd, data_quality FROM price_snapshots WHERE mint = ?`).get(addr(1002)) as Record<string, unknown>;
+    expect(s0).toMatchObject({ source: 'dexpaprika', price_usd: null, data_quality: 'partial' });
+    expect(f.calls.filter((u) => u.includes('geckoterminal'))).toHaveLength(2); // 429 再試行は 1 回だけ
+  }, 20_000);
+
+  it('両方の検出元が失敗したら discover の失敗として両方を記録する', async () => {
+    const env = makeEnv();
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes({}, 500), dp: () => jsonRes({}, 429) }).fn);
+    const r = await runIngestion(env, T0);
+    expect(r.errors.map((e) => `${e.component}:${e.source}:${e.status}`).sort()).toEqual(['discover:geckoterminal:500', 'discover_fallback:dexpaprika:429']);
+    expect(count(env, `SELECT COUNT(*) n FROM tokens`)).toBe(0);
+  }, 20_000);
+
+  it('追跡時に、未取得だった名前・シンボルを DEX Screener の値で補う（既存の値は上書きしない）', async () => {
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes({}, 404), dp: () => jsonRes({ results: [dpPool(1, iso(T0))] }), ds: () => jsonRes([]) }).fn);
+    await runIngestion(env, T0);
+    expect((env.DB.raw.prepare(`SELECT symbol s FROM tokens`).get() as { s: unknown }).s).toBeNull();
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes({ data: [] }), ds: () => jsonRes([dsPair(addr(1001), addr(2001), '0.1', 10)]) }).fn);
+    await runIngestion(env, T0 + 5 * 60_000);
+    expect(env.DB.raw.prepare(`SELECT symbol, name, initial_price_usd, last_price_usd FROM tokens`).get()).toMatchObject({ symbol: 'T', name: 'T', initial_price_usd: null, last_price_usd: 0.1 });
+  });
+});
+
 describe('リスク判定の自動実行', () => {
+  it('公式 RPC が 403 なら予備の公開 RPC に切り替え、以後はそちらを先に使う', async () => {
+    const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
+    const now = Date.now();
+    const hosts: string[] = [];
+    const rpc = (method: string, _p: unknown[], url: string) => {
+      hosts.push(new URL(url).host);
+      if (url.includes('mainnet-beta')) return jsonRes({}, 403);
+      return jsonRes(method === 'getAccountInfo' ? rpcMint() : rpcLargest(['900', '10']));
+    };
+    vi.stubGlobal('fetch', mockFetch({ gt: () => jsonRes(gtResponse([gtPool(1, iso(now)), gtPool(2, iso(now))])), rpc }).fn);
+    const r = await runIngestion(env, now);
+    expect(r.status).toBe('ok');
+    expect(count(env, `SELECT COUNT(*) n FROM tokens WHERE risk_level = 'LOW'`)).toBe(2);
+    expect(hosts.filter((h) => h.includes('mainnet-beta'))).toHaveLength(1); // 最初の 1 回だけ試す
+    expect(hosts.filter((h) => h.includes('publicnode'))).toHaveLength(4);
+  });
+
   it('検出した銘柄を判定して根拠・時刻つきで保存し、API で返す', async () => {
     const env = makeEnv({ MAX_NEW_TOKENS_PER_RUN: '10' });
     const now = Date.now();

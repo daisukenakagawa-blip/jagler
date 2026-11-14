@@ -169,7 +169,7 @@ export const rpcLargest = (amounts: string[]) => ({
 
 type RpcHandler = (method: string, params: unknown[]) => Response | Promise<Response>;
 /** fetch を差し替え、ホストごとに応答を返す。呼ばれた URL を記録する。rpc 未指定時は「権限放棄済み・分散」の応答 */
-export function mockFetch(routes: { gt?: () => Response | Promise<Response>; ds?: (url: string) => Response | Promise<Response>; rpc?: RpcHandler }) {
+export function mockFetch(routes: { gt?: () => Response | Promise<Response>; ds?: (url: string) => Response | Promise<Response>; dp?: () => Response | Promise<Response>; rpc?: RpcHandler | ((method: string, params: unknown[], url: string) => Response | Promise<Response>) }) {
   const calls: string[] = [];
   const defaultRpc: RpcHandler = (method) =>
     jsonRes(method === 'getAccountInfo' ? rpcMint() : rpcLargest(['800000000000000', '20000000000000', '10000000000000']));
@@ -178,14 +178,21 @@ export function mockFetch(routes: { gt?: () => Response | Promise<Response>; ds?
     calls.push(url);
     if (url.includes('geckoterminal') && routes.gt) return routes.gt();
     if (url.includes('dexscreener') && routes.ds) return routes.ds(url);
-    if (url.includes('solana.com')) {
+    if (url.includes('dexpaprika') && routes.dp) return routes.dp();
+    if (init?.method === 'POST') {
       const body = JSON.parse(String(init?.body ?? '{}'));
-      return (routes.rpc ?? defaultRpc)(body.method, body.params);
+      return (routes.rpc ?? defaultRpc)(body.method, body.params, url);
     }
     throw new Error('unexpected fetch ' + url);
   };
   return { fn: fn as typeof fetch, calls };
 }
+
+export const dpPool = (i: number, createdAtIso: string, solFirst = false) => ({
+  id: addr(2000 + i), dex_id: 'pumpfun', dex_name: 'Pump.fun', chain: 'solana', created_at: createdAtIso,
+  volume_usd_24h: 179.5, price_usd: 0.0000023, liquidity_usd: 1234.5,
+  tokens: solFirst ? [{ id: WSOL, chain: 'solana' }, { id: addr(1000 + i), chain: 'solana' }] : [{ id: addr(1000 + i), chain: 'solana' }, { id: WSOL, chain: 'solana' }],
+});
 
 export const jsonRes = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

@@ -11,6 +11,7 @@ export interface Env {
   /** 結合テスト用の上書き。本番では未設定（既定の公式ホストを使う） */
   GT_BASE_URL?: string;
   DS_BASE_URL?: string;
+  DP_BASE_URL?: string;
   /** Solana JSON-RPC。未設定なら公開エンドポイント。API キー入り URL は Secret で設定する */
   SOLANA_RPC_URL?: string;
   MAX_RISK_CHECKS_PER_RUN?: string;

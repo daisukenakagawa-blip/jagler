@@ -5,6 +5,9 @@ import { HttpError, fetchJson, int, intVar, num, str } from './util';
 
 export const RULESET_VERSION = 'rules-v1';
 export const DEFAULT_RPC = 'https://api.mainnet-beta.solana.com';
+/** 公式の公開 RPC は Cloudflare からの接続を 403 で拒否することがある（本番で確認）ため、キー不要の公開 RPC を予備にする */
+export const FALLBACK_RPC = 'https://solana-rpc.publicnode.com';
+let preferredRpc = 0;
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
@@ -167,12 +170,26 @@ export function assess(mint: MintInfo | null, holders: HolderInfo | null): { lev
 }
 
 async function rpc(env: Env, method: string, params: unknown[], counter: { apiCalls: number }): Promise<unknown> {
-  const json = await fetchJson(
-    'solana_rpc',
-    env.SOLANA_RPC_URL || DEFAULT_RPC,
-    { body: { jsonrpc: '2.0', id: 1, method, params }, timeoutMs: 6000, retries: 0 },
-    counter,
-  );
+  const endpoints = env.SOLANA_RPC_URL ? [env.SOLANA_RPC_URL] : [DEFAULT_RPC, FALLBACK_RPC];
+  let json: unknown;
+  let lastErr: unknown = null;
+  for (let i = 0; i < endpoints.length; i++) {
+    const idx = (preferredRpc + i) % endpoints.length;
+    try {
+      json = await fetchJson(
+        'solana_rpc',
+        endpoints[idx],
+        { body: { jsonrpc: '2.0', id: 1, method, params }, timeoutMs: 6000, retries: 0 },
+        counter,
+      );
+      preferredRpc = idx; // 次回からは通った方を先に使う
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (lastErr) throw lastErr;
   const e = obj(obj(json).error);
   if (e.message || e.code) throw new HttpError('solana_rpc', null, `RPC ${method}: ${String(e.message ?? e.code).slice(0, 120)}`);
   return json;
@@ -254,4 +271,9 @@ export async function runRiskChecks(
   }
   if (firstError) throw firstError;
   return done;
+}
+
+/** テスト用 */
+export function resetRpcPreference(): void {
+  preferredRpc = 0;
 }

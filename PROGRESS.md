@@ -10,6 +10,15 @@
 - 本番で確認済み: Cron 毎分実行、GeckoTerminal からの実データ取得、D1 保存、PWA 表示
 - 本番で判明: GeckoTerminal が断続的に HTTP 429 を返す（共有 IP が原因とみられる）→ 同一実行内で最大 2 回再試行を追加
 
+## 本番で判明した外部 API の挙動と対策（2026-11-14）
+
+| 相手 | 症状 | 対策（実装済み） |
+|---|---|---|
+| GeckoTerminal | Workers からは大半の実行で HTTP 429 | User-Agent 明示、429 を 1 回再試行、失敗時は DexPaprika を予備の検出元にする |
+| DexPaprika（予備） | 索引に約 1 時間の遅れ、名前・シンボルなし | 価格・名前は DEX Screener の実測値で補う。検出遅延はそのまま記録 |
+| Solana 公式公開 RPC | Workers からは HTTP 403 | キー不要の公開 RPC（publicnode）を予備に。Secret `SOLANA_RPC_URL` で差し替え可 |
+| DEX Screener | 概ね正常（まれに 429） | 次の分に再試行 |
+
 ## v0.4 で追加（Phase 3 の一部）
 
 - Solana RPC による Mint/Freeze 権限、Token Program、Token-2022 拡張、上位口座の集中度の取得

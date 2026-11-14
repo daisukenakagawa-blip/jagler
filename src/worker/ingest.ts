@@ -1,11 +1,14 @@
 import { runRiskChecks } from './risk';
 import { ensureSchema } from './schema';
 import {
+  DP_DEFAULT_BASE,
   DS_DEFAULT_BASE,
   DS_MAX_ADDRESSES,
   GT_DEFAULT_BASE,
+  dpNewPoolsUrl,
   dsTokensUrl,
   gtNewPoolsUrl,
+  parseDpNewPools,
   parseDsTokens,
   parseGtNewPools,
 } from './sources';
@@ -109,18 +112,37 @@ async function selectIn(db: D1Database, sql: string, values: string[]): Promise<
   return new Set(res.results.map((r) => r.v));
 }
 
+/** 新規プールの一覧を取得する。GeckoTerminal が失敗したら DexPaprika を予備として使う */
+async function fetchNewPools(env: Env, stats: RunStats, errors: RunError[]): Promise<{ source: string; pools: DetectedPool[] }> {
+  try {
+    const json = await fetchJson(
+      'geckoterminal',
+      gtNewPoolsUrl(env.GT_BASE_URL || GT_DEFAULT_BASE),
+      { retries429: 1 }, // 共有 IP 由来とみられる 429 が出るため、同じ実行内で 1 回だけ待って再試行
+      stats,
+    );
+    return { source: 'geckoterminal', pools: parseGtNewPools(json) };
+  } catch (primary) {
+    try {
+      const json = await fetchJson('dexpaprika', dpNewPoolsUrl(env.DP_BASE_URL || DP_DEFAULT_BASE), { retries: 0 }, stats);
+      // 予備で取得できた場合も、主系の失敗は記録に残す（稼働状況で見えるように）
+      errors.push(toRunError('discover_primary', primary));
+      return { source: 'dexpaprika', pools: parseDpNewPools(json) };
+    } catch (fallback) {
+      errors.push(toRunError('discover_fallback', fallback));
+      throw primary;
+    }
+  }
+}
+
 /** 新規プールの検出と保存 */
-async function discover(env: Env, now: number, allowance: number, stats: RunStats): Promise<void> {
+async function discover(env: Env, now: number, allowance: number, stats: RunStats, errors: RunError[]): Promise<void> {
   const db = env.DB;
-  const json = await fetchJson(
-    'geckoterminal',
-    gtNewPoolsUrl(env.GT_BASE_URL || GT_DEFAULT_BASE),
-    { retries429: 2 }, // 共有 IP 由来とみられる 429 が出るため、同じ実行内で最大 2 回だけ待って再試行
-    stats,
-  );
+  const fetched = await fetchNewPools(env, stats, errors);
+  const source = fetched.source;
   const seen = new Set<string>();
   const pools: DetectedPool[] = [];
-  for (const p of parseGtNewPools(json)) {
+  for (const p of fetched.pools) {
     if (seen.has(p.poolAddress)) continue;
     seen.add(p.poolAddress);
     pools.push(p);
@@ -143,64 +165,91 @@ async function discover(env: Env, now: number, allowance: number, stats: RunStat
 
   const maxNew = Math.min(intVar(env.MAX_NEW_TOKENS_PER_RUN, 2, 0, 20), allowance);
   const allowNew = allowance > 0;
-  const stmts: D1PreparedStatement[] = [];
-  const addedMints = new Set<string>();
-  let newTokens = 0;
-  let newSnapshots = 0;
-
+  const newTokenPools: DetectedPool[] = [];
+  const extraPools: DetectedPool[] = [];
+  const decided = new Set<string>();
   for (const p of fresh) {
-    const isNewToken = !knownMints.has(p.mint) && !addedMints.has(p.mint);
-    if (!allowNew || (isNewToken && newTokens >= maxNew)) {
+    const isNewToken = !knownMints.has(p.mint) && !decided.has(p.mint);
+    if (!allowNew || (isNewToken && newTokenPools.length >= maxNew)) {
       if (isNewToken) {
         stats.tokensSkippedBudget++;
-        addedMints.add(p.mint); // 同一ミントの二重カウント防止（保存はしない）
+        decided.add(p.mint); // 同一ミントの二重カウント防止（保存はしない）
         knownMints.add(p.mint);
       }
       continue;
     }
     if (isNewToken) {
-      newTokens++;
-      addedMints.add(p.mint);
-      const m = p.market;
-      stmts.push(
-        db
-          .prepare(
-            `INSERT OR IGNORE INTO tokens
-             (mint, name, symbol, decimals, first_pool_created_at, detected_at, detection_source, detection_delay_sec,
-              primary_pool_address, primary_dex_id, snapshot_stage, next_snapshot_at, initial_price_usd,
-              last_price_usd, last_liquidity_usd, last_fdv_usd, last_market_cap_usd, last_volume_h24_usd,
-              last_observed_at, last_source, data_quality, saved_at)
-             VALUES (?1,?2,?3,?4,?5,?6,'geckoterminal',?7,?8,?9,0,?10,?11,?11,?12,?13,?14,?15,?6,'geckoterminal','partial',?6)`,
-          )
-          .bind(
-            p.mint, p.name, p.symbol, p.decimals, p.poolCreatedAt, now, detectionDelaySec(now, p.poolCreatedAt),
-            p.poolAddress, p.dexId, nextSnapshotAt(now, 0), m.priceUsd, m.liquidityUsd, m.fdvUsd, m.marketCapUsd,
-            m.volumeH24Usd,
-          ),
-        snapshotStmt(db, p.mint, p.poolAddress, 'geckoterminal', 0, now, m, snapshotQuality(m)),
-      );
-      newSnapshots++;
+      decided.add(p.mint);
+      newTokenPools.push(p);
+    } else if (knownMints.has(p.mint) && !newTokenPools.some((n) => n.mint === p.mint) && decided.has(p.mint)) {
+      continue; // 今回見送ったミントの別プール
+    } else {
+      extraPools.push(p);
     }
+  }
+
+  // 予備の検出元は名前・価格を持たないので、保存する銘柄だけ DEX Screener で実測値を補う
+  let snapshotSource = source;
+  if (source === 'dexpaprika' && newTokenPools.length > 0) {
+    try {
+      const mints = newTokenPools.map((p) => p.mint);
+      const quotes = parseDsTokens(await fetchJson('dexscreener', dsTokensUrl(env.DS_BASE_URL || DS_DEFAULT_BASE, mints), {}, stats), mints);
+      for (const p of newTokenPools) {
+        const q = quotes.get(p.mint);
+        if (!q) continue;
+        p.name = q.name;
+        p.symbol = q.symbol;
+        p.market = q.market;
+      }
+      snapshotSource = 'dexscreener';
+    } catch (e) {
+      errors.push(toRunError('discover_enrich', e)); // 補えなければ価格等は未取得のまま保存する
+    }
+  }
+
+  const stmts: D1PreparedStatement[] = [];
+  const poolStmts = (p: DetectedPool) => [
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO liquidity_pools
+         (pool_address, mint, dex_id, dex_name, quote_mint, quote_symbol, pool_created_at, source, observed_at, saved_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?9,?8,?8)`,
+      )
+      .bind(p.poolAddress, p.mint, p.dexId, p.dexName, p.quoteMint, p.quoteSymbol, p.poolCreatedAt, now, source),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO token_events (mint, event_type, ref, source, observed_at, payload, saved_at)
+         VALUES (?1,'pool_detected',?2,?5,?3,?4,?3)`,
+      )
+      .bind(p.mint, p.poolAddress, now, JSON.stringify({ dex: p.dexId, pool_created_at: p.poolCreatedAt }), source),
+  ];
+  for (const p of newTokenPools) {
+    const m = p.market;
+    const snapSrc = m.priceUsd !== null && snapshotSource === 'dexscreener' ? 'dexscreener' : source;
     stmts.push(
       db
         .prepare(
-          `INSERT OR IGNORE INTO liquidity_pools
-           (pool_address, mint, dex_id, dex_name, quote_mint, quote_symbol, pool_created_at, source, observed_at, saved_at)
-           VALUES (?1,?2,?3,?4,?5,?6,?7,'geckoterminal',?8,?8)`,
+          `INSERT OR IGNORE INTO tokens
+           (mint, name, symbol, decimals, first_pool_created_at, detected_at, detection_source, detection_delay_sec,
+            primary_pool_address, primary_dex_id, snapshot_stage, next_snapshot_at, initial_price_usd,
+            last_price_usd, last_liquidity_usd, last_fdv_usd, last_market_cap_usd, last_volume_h24_usd,
+            last_observed_at, last_source, data_quality, saved_at)
+           VALUES (?1,?2,?3,?4,?5,?6,?16,?7,?8,?9,0,?10,?11,?11,?12,?13,?14,?15,?6,?17,'partial',?6)`,
         )
-        .bind(p.poolAddress, p.mint, p.dexId, p.dexName, p.quoteMint, p.quoteSymbol, p.poolCreatedAt, now),
-      db
-        .prepare(
-          `INSERT OR IGNORE INTO token_events (mint, event_type, ref, source, observed_at, payload, saved_at)
-           VALUES (?1,'pool_detected',?2,'geckoterminal',?3,?4,?3)`,
-        )
-        .bind(p.mint, p.poolAddress, now, JSON.stringify({ dex: p.dexId, pool_created_at: p.poolCreatedAt })),
+        .bind(
+          p.mint, p.name, p.symbol, p.decimals, p.poolCreatedAt, now, detectionDelaySec(now, p.poolCreatedAt),
+          p.poolAddress, p.dexId, nextSnapshotAt(now, 0), m.priceUsd, m.liquidityUsd, m.fdvUsd, m.marketCapUsd,
+          m.volumeH24Usd, source, snapSrc,
+        ),
+      snapshotStmt(db, p.mint, p.poolAddress, snapSrc, 0, now, m, snapshotQuality(m)),
+      ...poolStmts(p),
     );
   }
+  for (const p of extraPools) stmts.push(...poolStmts(p));
   if (stmts.length === 0) return;
   stats.rowsWritten += sumWritten(await db.batch(stmts));
-  stats.tokensNew = newTokens;
-  stats.snapshotsWritten += newSnapshots;
+  stats.tokensNew = newTokenPools.length;
+  stats.snapshotsWritten += newTokenPools.length;
 }
 
 interface DueRow {
@@ -271,12 +320,12 @@ async function followUp(env: Env, now: number, stats: RunStats): Promise<void> {
         .prepare(
           `UPDATE tokens SET snapshot_stage = ?2, next_snapshot_at = ?3, last_price_usd = ?4, last_liquidity_usd = ?5,
              last_fdv_usd = ?6, last_market_cap_usd = ?7, last_volume_h24_usd = ?8, last_observed_at = ?9,
-             last_source = 'dexscreener'
+             last_source = 'dexscreener', name = COALESCE(name, ?10), symbol = COALESCE(symbol, ?11)
            WHERE mint = ?1`,
         )
         .bind(
           r.mint, stage, nextSnapshotAt(r.detected_at, stage), m.priceUsd, m.liquidityUsd, m.fdvUsd, m.marketCapUsd,
-          m.volumeH24Usd, now,
+          m.volumeH24Usd, now, q.name, q.symbol,
         ),
     );
     stats.snapshotsWritten++;
@@ -361,7 +410,7 @@ export async function runIngestion(env: Env, now = Date.now()): Promise<{ status
       const allowance =
         usage.rows < budget * NEW_TOKEN_BUDGET_RATIO ? newTokenAllowance(now, budget, usage.tokens) : 0;
       try {
-        await discover(env, now, allowance, stats);
+        await discover(env, now, allowance, stats, errors);
       } catch (e) {
         errors.push(toRunError('discover', e));
       }
@@ -370,7 +419,8 @@ export async function runIngestion(env: Env, now = Date.now()): Promise<{ status
       } catch (e) {
         errors.push(toRunError('follow_up', e));
       }
-      const coreFailed = errors.length === 2;
+      const failed = (c: string) => errors.some((e) => e.component === c);
+      const coreFailed = failed('discover') && failed('follow_up');
       try {
         await runRiskChecks(env, now, stats);
       } catch (e) {
