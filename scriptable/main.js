@@ -1,7 +1,7 @@
 // ===== Scriptable 用の本体（scriptable/build.mjs が parse.js・model.js と結合して bundle.js を作る） =====
 // ペカセンの店 [アプリでの名前, ペカセンの店ID, 取り込み開始日]
 const STORES = [['本館', 'esupasu-nittakuuenohon', '20260814'], ['新館', 'esupasu-nittakuuenoshin', '20260814'],
-  ['ゴードン祖師谷', 'tokyo-717801', '20261001'], ['楽園川崎', 'rakuen-kawasaki', '20261001'],
+  ['ゴードン祖師谷', 'tokyo-717801', '20261001'], ['楽園川崎', 'rakuen-kawasaki', '20261001'], ['セブンS川崎', 'seven-s', '20261001'],
   ['マルハン新宿東宝', 'maruhan-shinjuku-toho', '20261001']];
 const WAIT_MS = 400;
 const PAGES = 'https://daisukenakagawa-blip.github.io/jagler/';
@@ -16,7 +16,6 @@ const wait = ms => new Promise(res => Timer.schedule(ms, false, () => res()));
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 const PSC = [   // P's CUBE（DMMぱちタウン経由）で台データを公開している店。台番は20スロのジャグラーのみ
   { name: '新橋UNO', code: 'c753216', dai: [...range(601, 667), ...range(672, 682)] },
-  { name: 'セブンS川崎', code: 'c732302', dai: [...range(527, 545), ...range(547, 550), ...range(552, 558), ...range(560, 574), ...range(576, 579), ...range(620, 675)] },
 ];
 const pscUrl = (st, no) => `https://www.pscube.jp/dedamajyoho-P-townDMMpachi/${st.code}/cgi-bin/nc-v06-001.php?cd_dai=${String(no).padStart(4, '0')}`;
 // サイトの機種名（半角カナ・店ごとの記号付き）→ アプリの機種名
@@ -81,9 +80,12 @@ async function main() {
   // ---- 1. 未取得の日をペカセンから取り込む ----
   const known = new Set([...STORES.map(x => x[0]), ...PSC.map(x => x.name)]);
   const rows0 = await readJson('rows.json', []);   // [店, 日付, 機種, 台番, G数, BIG, REG, 差枚]
-  const rows = rows0.filter(r => known.has(r[0]));   // アプリから外した店のデータは捨てる
+  const meta0 = await readJson('meta.json', { missing: [] });
+  // アプリから外した店のデータは捨てる。v2：セブンS川崎の取得元をDMM(P's CUBE)からペカセンに変えたので、旧データを1回だけ消す
+  const rows = rows0.filter(r => known.has(r[0]) && !(meta0.v !== 2 && r[0] === 'セブンS川崎'));
   const dropped = rows.length !== rows0.length;
-  const meta = await readJson('meta.json', { missing: [] });
+  const meta = meta0;
+  meta.v = 2;
   const have = new Set(rows.map(r => r[0] + r[1]));
   const miss = new Set(meta.missing);
   const today = ymdOf(new Date()), yday = addDay(today, -1), twoDaysAgo = addDay(today, -2);
@@ -125,7 +127,7 @@ async function main() {
     else if (d < twoDaysAgo) miss.add(sn + d);
     if (i % 20 === 19) {        // 途中経過を保存（途中で止まっても続きから再開できる）
       fm.writeString(P('rows.json'), JSON.stringify(rows));
-      fm.writeString(P('meta.json'), JSON.stringify({ missing: [...miss] }));
+      fm.writeString(P('meta.json'), JSON.stringify({ missing: [...miss], v: 2 }));
     }
   }
   meta.missing = [...miss].sort();
