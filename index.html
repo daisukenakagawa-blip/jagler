@@ -139,12 +139,13 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
 <div class="wrap">
   <header>
     <h1>ジャグラー設定マップ</h1>
-    <p>エスパス上野（本館・新館）と新橋UNOのジャグラー全台。台データを取り込み、高設定が入りやすい台を予想しています</p>
+    <p>エスパス上野（本館・新館）・新橋UNO・セブンS川崎（20スロ）のジャグラー全台。台データを取り込み、高設定が入りやすい台を予想しています</p>
   </header>
   <div class="seg" id="storeSeg" role="group" aria-label="店舗">
     <button type="button" data-v="本館" aria-pressed="true">本館</button>
     <button type="button" data-v="新館" aria-pressed="false">新館</button>
     <button type="button" data-v="新橋UNO" aria-pressed="false">新橋UNO</button>
+    <button type="button" data-v="セブンS川崎" aria-pressed="false">セブンS</button>
   </div>
   <div class="status" id="status"></div>
   <div class="seg" id="viewSeg" role="group" aria-label="表示">
@@ -164,8 +165,8 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
   <main id="view"><div class="err">データを読み込んでいます…</div></main>
   <section class="note">
     <p><b>期待度</b>：その台番に高設定（BIG・REGから設定4以上の確率75%以上）が入る確率の予想です。台番の過去の投入率（最近ほど重く）に、前日の台・島の状態と曜日・日付の効果を掛けています。効果の大きさは毎日データから学習し直しています。</p>
-    <p><b>特日</b>：本館は21日・25日、新館は4のつく日とゾロ目。<b>旧イベ日</b>：本館は1・7・11・21・22・25日、ゾロ目、第1土曜。新館は4・7のつく日とゾロ目。新橋UNOはイベント日がまだ分からないので、全日を通常日として扱っています。</p>
-    <p>高設定の判定は、本当の設定6でも5〜8割しか見つけられません。全台設定1の店でも約2%は高設定と判定されます。エスパスの差枚はスランプグラフからの推定値、新橋UNOはサイトの出枚数です。新橋UNOはサイトに直近6日分しか残らないため、アプリを開いた日に取りためています（6日以上あけると抜けが出ます）。</p>
+    <p><b>特日</b>：本館は21日・25日、新館は4のつく日とゾロ目。<b>旧イベ日</b>：本館は1・7・11・21・22・25日、ゾロ目、第1土曜。新館は4・7のつく日とゾロ目。新橋UNOとセブンSはイベント日がまだ分からないので、全日を通常日として扱っています。</p>
+    <p>高設定の判定は、本当の設定6でも5〜8割しか見つけられません。全台設定1の店でも約2%は高設定と判定されます。エスパスの差枚はスランプグラフからの推定値、新橋UNOとセブンSはサイトの出枚数です。この2店はサイトに直近6日分しか残らないため、アプリを開いた日に取りためています（6日以上あけると抜けが出ます）。</p>
   </section>
 </div>
 <div class="sheet-bg" id="sheetBg"></div>
@@ -197,7 +198,7 @@ function renderStatus(){
    <span class="upd">${stale?'<span class="stale">データが古くなっています。</span>':""}データ ${fmtD(s.lastData)}まで・更新 ${gs}${s.prevOk?"":"・前日のデータが無いため前日条件は使っていません"}</span>`;
 }
 function renderChips(list){
-  const order=["ネオアイムジャグラーEX","マイジャグラーV","マイジャグラー6","ゴーゴージャグラー3","ハッピージャグラーVIII","ファンキージャグラー2","ファンキージャグラー2KT","ジャグラーガールズSS","ウルトラミラクルジャグラー","ミスタージャグラー"];
+  const order=["ネオアイムジャグラーEX","アイムジャグラーEX","マイジャグラーV","マイジャグラー6","ゴーゴージャグラー3","ハッピージャグラーVIII","ファンキージャグラー2","ファンキージャグラー2KT","ジャグラーガールズSS","ウルトラミラクルジャグラー","ミスタージャグラー"];
   const ms=[...new Set(list)].sort((a,b)=>order.indexOf(a)-order.indexOf(b));if(st.machine!=="__all"&&!ms.includes(st.machine))st.machine="__all";
   const el=document.getElementById("chips");el.hidden=false;
   el.innerHTML=[`<button type="button" class="chip" data-m="__all" aria-pressed="${st.machine==="__all"}">全機種</button>`].concat(ms.map(m=>`<button type="button" class="chip" data-m="${m}" aria-pressed="${st.machine===m}">${short(m)}</button>`)).join("");

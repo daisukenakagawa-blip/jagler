@@ -37,15 +37,15 @@ function parseDay(html, ymd) {
 // rows: [{s,d,m,no,g,b,r,sa}]  meta: {missing:[...]}  today: 'YYYYMMDD'（日本時間）
 function runModel(rows, meta, today){
 const HALF=45, K=6, K2=15, BT=30;
-const STORES=[['本館'],['新館'],['新橋UNO']];
-const SP={'マイジャグラーV':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'マイジャグラー6':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'ネオアイムジャグラーEX':[[273.1,269.7,269.7,259.0,259.0,255.0],[439.8,399.6,331.0,315.1,255.0,255.0]],'ゴーゴージャグラー3':[[259.0,258.0,257.0,254.0,247.3,234.9],[354.2,332.7,306.2,268.6,247.3,234.9]],'ファンキージャグラー2':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ファンキージャグラー2KT':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ジャグラーガールズSS':[[273.1,270.8,260.1,250.1,243.6,226.0],[381.0,350.5,316.6,281.3,270.8,252.1]],'ウルトラミラクルジャグラー':[[267.5,261.1,256.0,242.7,233.2,216.3],[425.6,402.1,350.5,322.8,297.9,284.9]],'ハッピージャグラーVIII':[[273.1,270.8,263.2,254.0,239.2,226.0],[397.2,362.1,332.7,300.6,273.1,256.0]],'ミスタージャグラー':[[268.6,267.5,260.1,249.2,240.9,237.4],[374.5,354.2,331.0,291.3,257.0,237.4]]};
+const STORES=[['本館'],['新館'],['新橋UNO'],['セブンS川崎']];
+const SP={'マイジャグラーV':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'マイジャグラー6':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'ネオアイムジャグラーEX':[[273.1,269.7,269.7,259.0,259.0,255.0],[439.8,399.6,331.0,315.1,255.0,255.0]],'アイムジャグラーEX':[[273.1,269.7,269.7,259.0,259.0,255.0],[439.8,399.6,331.0,315.1,255.0,255.0]],'ゴーゴージャグラー3':[[259.0,258.0,257.0,254.0,247.3,234.9],[354.2,332.7,306.2,268.6,247.3,234.9]],'ファンキージャグラー2':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ファンキージャグラー2KT':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ジャグラーガールズSS':[[273.1,270.8,260.1,250.1,243.6,226.0],[381.0,350.5,316.6,281.3,270.8,252.1]],'ウルトラミラクルジャグラー':[[267.5,261.1,256.0,242.7,233.2,216.3],[425.6,402.1,350.5,322.8,297.9,284.9]],'ハッピージャグラーVIII':[[273.1,270.8,263.2,254.0,239.2,226.0],[397.2,362.1,332.7,300.6,273.1,256.0]],'ミスタージャグラー':[[268.6,267.5,260.1,249.2,240.9,237.4],[374.5,354.2,331.0,291.3,257.0,237.4]]};
 const DAY=864e5, log=[];
 const ymd=D=>D.getFullYear()+String(D.getMonth()+1).padStart(2,'0')+String(D.getDate()).padStart(2,'0');
 const dt=d=>new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));
 const addD=(d,n)=>{const D=dt(d);D.setDate(D.getDate()+n);return ymd(D)};
 // ---------- 2. per-row features ----------
 const evT=(s,d)=>{const D=dt(d),dd=D.getDate(),mm=D.getMonth()+1,wd=D.getDay(),why=[];let T=false,E=false;
- if(s==='新橋UNO')return {typ:'通常',why:[],wd};
+ if(s!=='本館'&&s!=='新館')return {typ:'通常',why:[],wd};
  if(s==='本館'){if(dd===21||dd===25)T=true;if(dd%10===7){E=true;why.push('7のつく日')}if([1,11,21,22,25].includes(dd)){E=true;why.push(dd+'日')}if(mm===dd){E=true;why.push('ゾロ目')}if(wd===6&&dd<=7){E=true;why.push('第1土曜')}}
  else{if(dd%10===4){T=true;E=true;why.push('4のつく日')}if(mm===dd){T=true;E=true;why.push('ゾロ目')}if(dd%10===7){E=true;why.push('7のつく日')}}
  return {typ:T?'特日':E?'旧イベ':'通常',why:[...new Set(why)],wd}};
@@ -125,12 +125,17 @@ const wait = ms => new Promise(res => Timer.schedule(ms, false, () => res()));
 
 
 // ---- 新橋UNO（P's CUBE）：台ごとのページを画面に出さないWebViewで開き、表示された表を読む ----
-const UNO = '新橋UNO';
-const UNO_BASE = 'https://www.pscube.jp/dedamajyoho-P-townDMMpachi/c753216/cgi-bin/nc-v06-001.php?cd_dai=';
-const UNO_DAI = [];
-for (let n = 601; n <= 667; n++) UNO_DAI.push(n);
-for (let n = 672; n <= 682; n++) UNO_DAI.push(n);
-const UNO_NAME = { 'マイジャグラーVI': 'マイジャグラー6' };
+const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+const PSC = [   // P's CUBE（DMMぱちタウン経由）で台データを公開している店。台番は20スロのジャグラーのみ
+  { name: '新橋UNO', code: 'c753216', dai: [...range(601, 667), ...range(672, 682)] },
+  { name: 'セブンS川崎', code: 'c732302', dai: [...range(527, 545), ...range(547, 550), ...range(552, 558), ...range(560, 574), ...range(576, 579), ...range(620, 675)] },
+];
+const pscUrl = (st, no) => `https://www.pscube.jp/dedamajyoho-P-townDMMpachi/${st.code}/cgi-bin/nc-v06-001.php?cd_dai=${String(no).padStart(4, '0')}`;
+// サイトの機種名（半角カナ・店ごとの記号付き）→ アプリの機種名
+const KISYU = [['マイジャグラーVI', 'マイジャグラー6'], ['マイジャグラーV', 'マイジャグラーV'], ['ネオアイム', 'ネオアイムジャグラーEX'], ['アイムジャグラー', 'アイムジャグラーEX'],
+  ['ゴーゴー', 'ゴーゴージャグラー3'], ['ファンキー', 'ファンキージャグラー2KT'], ['ハッピー', 'ハッピージャグラーVIII'], ['ガールズ', 'ジャグラーガールズSS'],
+  ['ミスター', 'ミスタージャグラー'], ['ウルトラミラクル', 'ウルトラミラクルジャグラー']];
+const kisyuOf = raw => { const n = raw.normalize('NFKC').replace(/\s+/g, ''); const k = KISYU.find(([key]) => n.includes(key)); return k ? k[1] : n; };
 // WebView の中で動く関数（表が表示されるまで最大15秒待つ）
 const unoScrape = function () {
   let n = 0;
@@ -140,7 +145,7 @@ const unoScrape = function () {
     const row = t[3] && t[3].rows[0];
     if (row && m && row.cells.length >= 2) {
       const days = [...row.cells].map(c => { let e = c; while (e.children.length === 1) e = e.children[0]; return [...e.children].map(k => k.textContent.trim()); });
-      if (days[0][0] === '本日' && days.some(d => /^\d+$/.test(d[9] || ''))) {
+      if (days[0][0] === '本日' && days[0].length >= 11) {
         completion(JSON.stringify({ u: m.slice(1), name: (document.title.split('｜')[1] || ''), days }));
         return;
       }
@@ -149,21 +154,24 @@ const unoScrape = function () {
   };
   go();
 };
-async function unoFetch(wv, no) {
-  await wv.loadURL(UNO_BASE + String(no).padStart(4, '0'));
+async function pscFetch(wv, st, no) {
+  await wv.loadURL(pscUrl(st, no));
   const s = await wv.evaluateJavaScript('(' + unoScrape.toString() + ')()', true);
   if (!s) return null;
   const j = JSON.parse(s);
-  let name = j.name.normalize('NFKC').trim();
-  name = UNO_NAME[name] || name;
+  const name = kisyuOf(j.name);
   const upd = j.u[0] + j.u[1].padStart(2, '0') + j.u[2].padStart(2, '0'), hour = +j.u[3];
   const out = [];
   for (const c of j.days) {
     const k = c[0] === '本日' ? 0 : parseInt(c[0], 10);
     if (!(k >= 0) || (k === 0 && hour < 23)) continue;     // 営業中の「本日」は使わない
-    const g = parseInt(c[9], 10);
+    // 列の並び：AT列・出枚数ありの店 [名, BONUS, BIG, REG, AT, BIG確率, REG確率, AT確率, 合成, 累計G, 最終G, 出枚数, 最大放出, BIG最高]
+    //          AT列・出枚数なしの店 [名, BONUS, BIG, REG, BIG確率, REG確率, 合成, 累計G, 最終G, 最大放出, BIG最高]
+    const wide = c.length >= 14;
+    const g = parseInt(c[wide ? 9 : 7], 10);
     if (!(g >= 0)) continue;
-    const sa = c[11] ? (c[11].startsWith('▲') ? -1 : 1) * parseInt(c[11].replace(/[^\d]/g, ''), 10) : null;
+    const sc = wide ? c[11] : '';
+    const sa = sc ? (sc.startsWith('▲') ? -1 : 1) * parseInt(sc.replace(/[^\d]/g, ''), 10) : null;
     out.push([addDay(upd, -k), name, no, g, parseInt(c[2], 10) || 0, parseInt(c[3], 10) || 0, Number.isFinite(sa) ? sa : null]);
   }
   return out;
@@ -228,34 +236,33 @@ async function main() {
   fm.writeString(P('meta.json'), JSON.stringify(meta));
 
 
-  // ---- 1b. 新橋UNO（アプリで開いたときだけ。サイトに残るのは直近6日分） ----
-  let unoAdded = 0, unoFail = 0;
-  if (inApp) {
-    const haveU = new Set(rows.filter(r => r[0] === UNO).map(r => r[1] + '|' + r[3]));
-    const todoU = UNO_DAI.filter(no => !haveU.has(yday + '|' + no));
-    if (todoU.length) {
-      if (todoU.length > 10) {
-        const a = new Alert();
-        a.title = '新橋UNOの取り込み';
-        a.message = `${todoU.length}台分のページを1台ずつ開きます。数分かかるので、Scriptableを開いたまま待ってください。`;
-        a.addAction('始める'); a.addCancelAction('今日はしない');
-        if (await a.present() === -1) todoU.length = 0;
-      }
-      const wv = new WebView();
-      let streak = 0;
-      for (let i = 0; i < todoU.length; i++) {
-        const no = todoU[i];
-        let r = null;
-        for (let t = 0; t < 2 && !r; t++) { try { r = await unoFetch(wv, no); } catch (e) { r = null; } }
-        if (!r) { unoFail++; streak++; log.push(`${UNO}${no}番 取得できず`); if (streak >= 5) { log.push(`${UNO} 5台続けて失敗したので中止`); break; } continue; }
-        streak = 0;
-        for (const x of r) if (!haveU.has(x[0] + '|' + no)) { rows.push([UNO, ...x]); haveU.add(x[0] + '|' + no); unoAdded++; }
-        if (i % 10 === 9) fm.writeString(P('rows.json'), JSON.stringify(rows));
-      }
-      if (unoAdded) fm.writeString(P('rows.json'), JSON.stringify(rows));
-      if (!unoAdded && unoFail) { const a = new Alert(); a.title = '新橋UNOを取り込めませんでした'; a.message = '電波の良い所で開き直してください。続く場合はサイトの作りが変わった可能性があります。'; a.addAction('OK'); await a.present(); }
-      added += unoAdded;
+  // ---- 1b. P's CUBE の店（アプリで開いたときだけ。サイトに残るのは直近6日分） ----
+  if (inApp) for (const st of PSC) {
+    const haveU = new Set(rows.filter(r => r[0] === st.name).map(r => r[1] + '|' + r[3]));
+    const todoU = st.dai.filter(no => !haveU.has(yday + '|' + no));
+    if (!todoU.length) continue;
+    if (todoU.length > 10) {
+      const a = new Alert();
+      a.title = st.name + 'の取り込み';
+      a.message = `${todoU.length}台分のページを1台ずつ開きます。数分かかるので、Scriptableを開いたまま待ってください。`;
+      a.addAction('始める'); a.addCancelAction('今日はしない');
+      if (await a.present() === -1) continue;
     }
+    const wv = new WebView();
+    let streak = 0, got = 0, fail = 0;
+    for (let i = 0; i < todoU.length; i++) {
+      const no = todoU[i];
+      if (i) await wait(1500);   // サイトに負担をかけないよう1台ごとに間をあける
+      let r = null;
+      for (let t = 0; t < 2 && !r; t++) { try { r = await pscFetch(wv, st, no); } catch (e) { r = null; } }
+      if (!r) { fail++; streak++; log.push(`${st.name}${no}番 取得できず`); if (streak >= 5) { log.push(`${st.name} 5台続けて失敗したので中止（次に開いたとき続きから）`); break; } continue; }
+      streak = 0;
+      for (const x of r) if (!haveU.has(x[0] + '|' + no)) { rows.push([st.name, ...x]); haveU.add(x[0] + '|' + no); got++; }
+      if (i % 10 === 9) fm.writeString(P('rows.json'), JSON.stringify(rows));
+    }
+    if (got) fm.writeString(P('rows.json'), JSON.stringify(rows));
+    if (!got && fail) { const a = new Alert(); a.title = st.name + 'を取り込めませんでした'; a.message = '電波の良い所で開き直してください。続く場合はサイトの作りが変わった可能性があります。'; a.addAction('OK'); await a.present(); }
+    added += got;
   }
 
   // ---- 2. 学習・予想・検証 ----
@@ -289,7 +296,7 @@ async function main() {
   } else {
     const n = new Notification();
     n.title = 'ジャグラー 今日の予想';
-    n.body = ['本館', '新館', UNO].map(s => {
+    n.body = ['本館', '新館', ...PSC.map(x => x.name)].map(s => {
       const S = out.stores[s];
       if (!S) return s + ': データなし';
       return `${s}（${S.typ === '旧イベ' ? '旧イベ日' : S.typ}）: ` + S.preds.slice(0, 5).map(p => `${p[0]} ${Math.round(p[2] * 100)}%`).join(' / ');
