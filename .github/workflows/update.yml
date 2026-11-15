@@ -1,15 +1,10 @@
 name: 設定予想の毎朝更新
 
 on:
-  schedule:
-    # 日本時間 7:05・8:05・9:05・10:05・11:05（UTCで指定）。前日分が未掲載なら次の回で取り込む
-    - cron: '5 22,23,0,1,2 * * *'
-  # スクリプトや設定を更新したときにも1回実行する
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/**'
-      - '.github/workflows/update.yml'
+  # ペカセンがGitHubからのアクセスを拒否（HTTP 403）したため、定時実行は停止中。
+  # 再開するときは下の schedule のコメントを外す。
+  # schedule:
+  #   - cron: '5 22,23,0,1,2 * * *'
   workflow_dispatch:
     inputs:
       force:
