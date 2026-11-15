@@ -43,6 +43,8 @@ header h1{font-family:var(--font-body);font-weight:900;font-size:22px;margin:0;l
 header p{margin:2px 0 0;color:var(--muted);font-size:12.5px}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
 .seg button{appearance:none;border:0;background:transparent;color:var(--ink);font:inherit;font-weight:700;font-size:14px;padding:9px 4px;border-radius:7px;cursor:pointer}
+.seg.stores{grid-auto-flow:row;grid-template-columns:repeat(3,1fr)}
+.seg.stores button{font-size:12.5px;padding:8px 2px;line-height:1.25}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
 .seg button:focus-visible,.chip:focus-visible,.row:focus-visible,.tile:focus-visible,.link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .today{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px}
@@ -139,13 +141,18 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
 <div class="wrap">
   <header>
     <h1>ジャグラー設定マップ</h1>
-    <p>エスパス上野（本館・新館）・新橋UNO・セブンS川崎（20スロ）のジャグラー全台。台データを取り込み、高設定が入りやすい台を予想しています</p>
+    <p>エスパス上野・マルハン新宿東宝ビル・ゴードン祖師谷・新橋UNO・セブンS川崎（20スロ）・SUPER CONCORDE・GOLD CONCORDE富士・123+N新市街のジャグラー全台。台データを取り込み、高設定が入りやすい台を予想しています</p>
   </header>
-  <div class="seg" id="storeSeg" role="group" aria-label="店舗">
-    <button type="button" data-v="本館" aria-pressed="true">本館</button>
-    <button type="button" data-v="新館" aria-pressed="false">新館</button>
+  <div class="seg stores" id="storeSeg" role="group" aria-label="店舗">
+    <button type="button" data-v="本館" aria-pressed="true">上野本館</button>
+    <button type="button" data-v="新館" aria-pressed="false">上野新館</button>
+    <button type="button" data-v="マルハン新宿東宝" aria-pressed="false">新宿東宝</button>
+    <button type="button" data-v="ゴードン祖師谷" aria-pressed="false">ゴードン祖師谷</button>
     <button type="button" data-v="新橋UNO" aria-pressed="false">新橋UNO</button>
-    <button type="button" data-v="セブンS川崎" aria-pressed="false">セブンS</button>
+    <button type="button" data-v="セブンS川崎" aria-pressed="false">セブンS川崎</button>
+    <button type="button" data-v="SUPER CONCORDE" aria-pressed="false">SUPERコンコルド</button>
+    <button type="button" data-v="GOLD CONCORDE富士" aria-pressed="false">GOLDコンコルド富士</button>
+    <button type="button" data-v="123+N新市街" aria-pressed="false">123+N新市街</button>
   </div>
   <div class="status" id="status"></div>
   <div class="seg" id="viewSeg" role="group" aria-label="表示">
@@ -165,7 +172,7 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
   <main id="view"><div class="err">データを読み込んでいます…</div></main>
   <section class="note">
     <p><b>期待度</b>：その台番に高設定（BIG・REGから設定4以上の確率75%以上）が入る確率の予想です。台番の過去の投入率（最近ほど重く）に、前日の台・島の状態と曜日・日付の効果を掛けています。効果の大きさは毎日データから学習し直しています。</p>
-    <p><b>特日</b>：本館は21日・25日、新館は4のつく日とゾロ目。<b>旧イベ日</b>：本館は1・7・11・21・22・25日、ゾロ目、第1土曜。新館は4・7のつく日とゾロ目。新橋UNOとセブンSはイベント日がまだ分からないので、全日を通常日として扱っています。</p>
+    <p><b>特日・旧イベ日</b>：エスパス上野本館は特日21・25日、旧イベ1・7・11・21・22・25日・ゾロ目・第1土曜。新館は特日4のつく日とゾロ目、旧イベ4・7のつく日とゾロ目。SUPER CONCORDEは特日23・28日、イベ系3・8のつく日。GOLD CONCORDE富士は6のつく日と22日、ゴードン祖師谷は9のつく日をイベ系として扱っています（過去3か月のデータで高設定率が高かった日）。それ以外の店は全日を通常日として扱い、曜日の効果だけ学習しています。</p>
     <p>高設定の判定は、本当の設定6でも5〜8割しか見つけられません。全台設定1の店でも約2%は高設定と判定されます。エスパスの差枚はスランプグラフからの推定値、新橋UNOとセブンSはサイトの出枚数です。この2店はサイトに直近6日分しか残らないため、アプリを開いた日に取りためています（6日以上あけると抜けが出ます）。</p>
   </section>
 </div>
@@ -266,7 +273,7 @@ function openSheet(no,m){
   document.getElementById("sheetIn").innerHTML=`<div class="sh-head"><div><div class="no" id="shNo">${r.no}</div><div class="mname">${r.m}・${r.s}</div></div><button type="button" class="close" id="closeBtn">閉じる</button></div>
    ${p?`<div class="card" style="padding:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><span>${fmtD(S().target)}の期待度</span><b style="font-family:var(--font-display);font-size:24px">${pct(p[2]*100)}</b></div>${p[4].length?`<div class="reasons">${p[4].map(rsChip).join("")}</div>`:""}</div>`:""}
    <div class="grid4">${cells}</div>
-   <div class="kv"><div><span>平均推定設定</span><b>${r.es??"–"}</b></div><div><span>平均G数</span><b>${r.g.toLocaleString()}</b></div><div><span>平均差枚</span><b>${r.sa==null?"–":(r.sa>0?"+":"")+r.sa.toLocaleString()}</b></div><div><span>プラス率</span><b>${pct(r.pl)}</b></div><div><span>集計期間</span><b>${r.per}</b></div><div><span>特日の定義</span><b>${r.s==="本館"?"21・25日":r.s==="新館"?"4の日・ゾロ目":"未設定"}</b></div></div>`;
+   <div class="kv"><div><span>平均推定設定</span><b>${r.es??"–"}</b></div><div><span>平均G数</span><b>${r.g.toLocaleString()}</b></div><div><span>平均差枚</span><b>${r.sa==null?"–":(r.sa>0?"+":"")+r.sa.toLocaleString()}</b></div><div><span>プラス率</span><b>${pct(r.pl)}</b></div><div><span>集計期間</span><b>${r.per}</b></div><div><span>特日</span><b>${(S().rule&&S().rule.T)||"未設定"}</b></div></div>`;
   document.getElementById("sheet").classList.add("open");document.getElementById("sheetBg").classList.add("open");document.getElementById("closeBtn").onclick=closeSheet;document.getElementById("closeBtn").focus();
 }
 function closeSheet(){document.getElementById("sheet").classList.remove("open");document.getElementById("sheetBg").classList.remove("open")}

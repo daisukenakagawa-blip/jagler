@@ -15,7 +15,8 @@ function parseDay(html, ymd) {
   for (const part of html.split('class="dayblock"').slice(1)) {
     const mm = part.match(/class="dd"[^>]*>([\s\S]*?)<\/a>/);
     if (!mm) continue;
-    const machine = strip(mm[1]);
+    const machine = strip(mm[1]).replace(/^S(?=[ァ-ヶ])/, '');   // 「SアイムジャグラーEX」などの頭のSを取る
+    if (!/ジャグラー/.test(machine) || machine.length >= 20) continue;   // ジャグラー以外は除く
     const th = part.match(/<thead[^>]*>([\s\S]*?)<\/thead>/);
     if (!th || !/台番/.test(th[1])) continue;
     const tb = part.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);
@@ -37,15 +38,21 @@ function parseDay(html, ymd) {
 // rows: [{s,d,m,no,g,b,r,sa}]  meta: {missing:[...]}  today: 'YYYYMMDD'（日本時間）
 function runModel(rows, meta, today){
 const HALF=45, K=6, K2=15, BT=30;
-const STORES=[['本館'],['新館'],['新橋UNO'],['セブンS川崎']];
+const STORES=[['本館'],['新館'],['新橋UNO'],['セブンS川崎'],['SUPER CONCORDE'],['GOLD CONCORDE富士'],['123+N新市街'],['ゴードン祖師谷'],['マルハン新宿東宝']];
 const SP={'マイジャグラーV':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'マイジャグラー6':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'ネオアイムジャグラーEX':[[273.1,269.7,269.7,259.0,259.0,255.0],[439.8,399.6,331.0,315.1,255.0,255.0]],'アイムジャグラーEX':[[273.1,269.7,269.7,259.0,259.0,255.0],[439.8,399.6,331.0,315.1,255.0,255.0]],'ゴーゴージャグラー3':[[259.0,258.0,257.0,254.0,247.3,234.9],[354.2,332.7,306.2,268.6,247.3,234.9]],'ファンキージャグラー2':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ファンキージャグラー2KT':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ジャグラーガールズSS':[[273.1,270.8,260.1,250.1,243.6,226.0],[381.0,350.5,316.6,281.3,270.8,252.1]],'ウルトラミラクルジャグラー':[[267.5,261.1,256.0,242.7,233.2,216.3],[425.6,402.1,350.5,322.8,297.9,284.9]],'ハッピージャグラーVIII':[[273.1,270.8,263.2,254.0,239.2,226.0],[397.2,362.1,332.7,300.6,273.1,256.0]],'ミスタージャグラー':[[268.6,267.5,260.1,249.2,240.9,237.4],[374.5,354.2,331.0,291.3,257.0,237.4]]};
 const DAY=864e5, log=[];
+// エスパス以外の店の強い日（2026/8〜11月のペカセンデータで高設定率が有意に高かった日。tl/el は表示用）
+const RULES={'SUPER CONCORDE':{T:d=>d===23||d===28,tl:'23・28日',E:d=>d%10===3||d%10===8,el:'3・8のつく日',txt:{T:'23日・28日',E:'3・8のつく日'}},
+ 'GOLD CONCORDE富士':{E:d=>d%10===6||d===22,el:'6のつく日・22日',txt:{T:'なし',E:'6のつく日・22日'}},
+ 'ゴードン祖師谷':{E:d=>d%10===9,el:'9のつく日',txt:{T:'なし',E:'9のつく日'}}};
 const ymd=D=>D.getFullYear()+String(D.getMonth()+1).padStart(2,'0')+String(D.getDate()).padStart(2,'0');
 const dt=d=>new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));
 const addD=(d,n)=>{const D=dt(d);D.setDate(D.getDate()+n);return ymd(D)};
 // ---------- 2. per-row features ----------
 const evT=(s,d)=>{const D=dt(d),dd=D.getDate(),mm=D.getMonth()+1,wd=D.getDay(),why=[];let T=false,E=false;
- if(s!=='本館'&&s!=='新館')return {typ:'通常',why:[],wd};
+ if(s!=='本館'&&s!=='新館'){const R=RULES[s];if(!R)return {typ:'通常',why:[],wd};
+  if(R.T&&R.T(dd,wd,mm)){T=true;E=true;why.push(R.tl)}else if(R.E&&R.E(dd,wd,mm)){E=true;why.push(R.el)}
+  return {typ:T?'特日':E?'旧イベ':'通常',why,wd}}
  if(s==='本館'){if(dd===21||dd===25)T=true;if(dd%10===7){E=true;why.push('7のつく日')}if([1,11,21,22,25].includes(dd)){E=true;why.push(dd+'日')}if(mm===dd){E=true;why.push('ゾロ目')}if(wd===6&&dd<=7){E=true;why.push('第1土曜')}}
  else{if(dd%10===4){T=true;E=true;why.push('4のつく日')}if(mm===dd){T=true;E=true;why.push('ゾロ目')}if(dd%10===7){E=true;why.push('7のつく日')}}
  return {typ:T?'特日':E?'旧イベ':'通常',why:[...new Set(why)],wd}};
@@ -99,7 +106,7 @@ for(const [s] of STORES){if(!latest[s])continue;const S=rows.filter(x=>x.s===s);
  const pr=predict(mdl,s,cands,target,prevDay).sort((a,b)=>b.p-a.p);const e=evT(s,target);const g=cls(e.typ)==='N'?'N':'ET';
  const facs=g2=>Object.keys(CONDS).map(k=>{const o=mdl.F[s+g2+k];return [k,o?+o[0].toFixed(1):0,o?+o[1].toFixed(1):0,+mdl.fac(o).toFixed(2),o?o[2]:0]});
  const dfacs=g2=>Object.keys(DAYC).map(k=>{const o=mdl.D[s+g2+k];return [k,o?+o[0].toFixed(1):0,o?+o[1].toFixed(1):0,+mdl.fac(o).toFixed(2),o?o[2]:0]});
- Object.assign(out.stores[s]=out.stores[s]||{},{target,typ:e.typ,why:e.why,wd:e.wd,prevOk:!!prevDay,lastData:L,
+ Object.assign(out.stores[s]=out.stores[s]||{},{rule:s==='本館'?{T:'21・25日',E:'1・7・11・21・22・25日、ゾロ目、第1土曜'}:s==='新館'?{T:'4のつく日・ゾロ目',E:'4・7のつく日、ゾロ目'}:(RULES[s]?RULES[s].txt:null),target,typ:e.typ,why:e.why,wd:e.wd,prevOk:!!prevDay,lastData:L,
   preds:pr.map(o=>[o.x.no,o.x.m,+o.p.toFixed(3),+o.b.toFixed(3),o.rs]),
   bt:{days:hist.length,h10:H10,n10:N10,hb10:HBase10,nb10:NBase10,hd:HD,nd:ND,hist},
   fac:{N:facs('N'),ET:facs('ET')},dfac:{N:dfacs('N'),ET:dfacs('ET')}});
@@ -113,8 +120,11 @@ return out;
 }
 
 // ===== Scriptable 用の本体（scriptable/build.mjs が parse.js・model.js と結合して bundle.js を作る） =====
-const STORES = [['本館', 'esupasu-nittakuuenohon'], ['新館', 'esupasu-nittakuuenoshin']];
-const START = '20260814';
+// ペカセンの店 [アプリでの名前, ペカセンの店ID, 取り込み開始日]
+const STORES = [['本館', 'esupasu-nittakuuenohon', '20260814'], ['新館', 'esupasu-nittakuuenoshin', '20260814'],
+  ['SUPER CONCORDE', 'shizuoka-101100', '20261001'], ['GOLD CONCORDE富士', 'shizuoka-101111', '20261001'],
+  ['123+N新市街', '123n-shinshigai', '20261001'], ['ゴードン祖師谷', 'tokyo-717801', '20261001'],
+  ['マルハン新宿東宝', 'maruhan-shinjuku-toho', '20261001']];
 const WAIT_MS = 400;
 const PAGES = 'https://daisukenakagawa-blip.github.io/jagler/';
 
@@ -197,19 +207,20 @@ async function main() {
   const miss = new Set(meta.missing);
   const today = ymdOf(new Date()), yday = addDay(today, -1), twoDaysAgo = addDay(today, -2);
   const todo = [];
-  for (const [sn, slug] of STORES)
-    for (let d = START; d <= yday; d = addDay(d, 1))
+  for (const [sn, slug, start] of STORES)
+    for (let d = start; d <= yday; d = addDay(d, 1))
       if (!have.has(sn + d) && !miss.has(sn + d)) todo.push([sn, slug, d]);
 
-  if (inApp && todo.length > 20) {
+  if (inApp && todo.length > 20) {   // 初回や店を増やしたとき
     const a = new Alert();
-    a.title = '初回の取り込み';
-    a.message = `ペカセンから${todo.length}日分を取り込みます。${Math.ceil(todo.length * 0.9 / 60)}分ほどかかるので、Scriptableを開いたまま待ってください。`;
+    a.title = 'ペカセンからまとめて取り込み';
+    a.message = `${todo.length}日分（店×日）を取り込みます。${Math.ceil(todo.length * 2 / 60)}分ほどかかり、通信量も多い（1日分で約0.5MB）ので、Wi-Fiにつないで、Scriptableを開いたまま待ってください。`;
     a.addAction('始める');
     await a.present();
   }
   const log = [];
   let added = 0, blocked = false;
+  const typical = {};
   for (let i = 0; i < todo.length; i++) {
     const [sn, slug, d] = todo[i];
     if (i) await wait(WAIT_MS);
@@ -224,6 +235,11 @@ async function main() {
       continue;
     }
     const r = parseDay(html, d);
+    // 直近の日はペカセンの更新途中で一部の機種しか載っていないことがある → 台数が普段の8割未満なら次回取り直す
+    if (r && r.length && d >= twoDaysAgo) {
+      if (!typical[sn]) { const c = {}; rows.forEach(x => { if (x[0] === sn) c[x[1]] = (c[x[1]] || 0) + 1; }); const v = Object.values(c).sort((a, b) => a - b); typical[sn] = v.length ? v[v.length >> 1] : 0; }
+      if (r.length < typical[sn] * 0.8) { log.push(`${sn}${d} 更新途中（${r.length}台）`); continue; }
+    }
     if (r && r.length) { r.forEach(x => rows.push([sn, d, ...x])); have.add(sn + d); added += r.length; }
     else if (d < twoDaysAgo) miss.add(sn + d);
     if (i % 20 === 19) {        // 途中経過を保存（途中で止まっても続きから再開できる）
@@ -296,10 +312,10 @@ async function main() {
   } else {
     const n = new Notification();
     n.title = 'ジャグラー 今日の予想';
-    n.body = ['本館', '新館', ...PSC.map(x => x.name)].map(s => {
+    n.body = [...STORES.map(x => x[0]), ...PSC.map(x => x.name)].map(s => {
       const S = out.stores[s];
       if (!S) return s + ': データなし';
-      return `${s}（${S.typ === '旧イベ' ? '旧イベ日' : S.typ}）: ` + S.preds.slice(0, 5).map(p => `${p[0]} ${Math.round(p[2] * 100)}%`).join(' / ');
+      return `${s}（${S.typ === '旧イベ' ? '旧イベ日' : S.typ}）: ` + S.preds.slice(0, 3).map(p => `${p[0]} ${Math.round(p[2] * 100)}%`).join(' / ');
     }).join('\n') + '\n（新橋UNOはアプリを開いたときに取り込みます）';
     await n.schedule();
   }

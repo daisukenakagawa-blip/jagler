@@ -14,7 +14,8 @@ export function parseDay(html, ymd) {
   for (const part of html.split('class="dayblock"').slice(1)) {
     const mm = part.match(/class="dd"[^>]*>([\s\S]*?)<\/a>/);
     if (!mm) continue;
-    const machine = strip(mm[1]);
+    const machine = strip(mm[1]).replace(/^S(?=[ァ-ヶ])/, '');   // 「SアイムジャグラーEX」などの頭のSを取る
+    if (!/ジャグラー/.test(machine) || machine.length >= 20) continue;   // ジャグラー以外は除く
     const th = part.match(/<thead[^>]*>([\s\S]*?)<\/thead>/);
     if (!th || !/台番/.test(th[1])) continue;
     const tb = part.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);

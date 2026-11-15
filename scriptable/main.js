@@ -1,6 +1,9 @@
 // ===== Scriptable 用の本体（scriptable/build.mjs が parse.js・model.js と結合して bundle.js を作る） =====
-const STORES = [['本館', 'esupasu-nittakuuenohon'], ['新館', 'esupasu-nittakuuenoshin']];
-const START = '20260814';
+// ペカセンの店 [アプリでの名前, ペカセンの店ID, 取り込み開始日]
+const STORES = [['本館', 'esupasu-nittakuuenohon', '20260814'], ['新館', 'esupasu-nittakuuenoshin', '20260814'],
+  ['SUPER CONCORDE', 'shizuoka-101100', '20261001'], ['GOLD CONCORDE富士', 'shizuoka-101111', '20261001'],
+  ['123+N新市街', '123n-shinshigai', '20261001'], ['ゴードン祖師谷', 'tokyo-717801', '20261001'],
+  ['マルハン新宿東宝', 'maruhan-shinjuku-toho', '20261001']];
 const WAIT_MS = 400;
 const PAGES = 'https://daisukenakagawa-blip.github.io/jagler/';
 
@@ -83,19 +86,20 @@ async function main() {
   const miss = new Set(meta.missing);
   const today = ymdOf(new Date()), yday = addDay(today, -1), twoDaysAgo = addDay(today, -2);
   const todo = [];
-  for (const [sn, slug] of STORES)
-    for (let d = START; d <= yday; d = addDay(d, 1))
+  for (const [sn, slug, start] of STORES)
+    for (let d = start; d <= yday; d = addDay(d, 1))
       if (!have.has(sn + d) && !miss.has(sn + d)) todo.push([sn, slug, d]);
 
-  if (inApp && todo.length > 20) {
+  if (inApp && todo.length > 20) {   // 初回や店を増やしたとき
     const a = new Alert();
-    a.title = '初回の取り込み';
-    a.message = `ペカセンから${todo.length}日分を取り込みます。${Math.ceil(todo.length * 0.9 / 60)}分ほどかかるので、Scriptableを開いたまま待ってください。`;
+    a.title = 'ペカセンからまとめて取り込み';
+    a.message = `${todo.length}日分（店×日）を取り込みます。${Math.ceil(todo.length * 2 / 60)}分ほどかかり、通信量も多い（1日分で約0.5MB）ので、Wi-Fiにつないで、Scriptableを開いたまま待ってください。`;
     a.addAction('始める');
     await a.present();
   }
   const log = [];
   let added = 0, blocked = false;
+  const typical = {};
   for (let i = 0; i < todo.length; i++) {
     const [sn, slug, d] = todo[i];
     if (i) await wait(WAIT_MS);
@@ -110,6 +114,11 @@ async function main() {
       continue;
     }
     const r = parseDay(html, d);
+    // 直近の日はペカセンの更新途中で一部の機種しか載っていないことがある → 台数が普段の8割未満なら次回取り直す
+    if (r && r.length && d >= twoDaysAgo) {
+      if (!typical[sn]) { const c = {}; rows.forEach(x => { if (x[0] === sn) c[x[1]] = (c[x[1]] || 0) + 1; }); const v = Object.values(c).sort((a, b) => a - b); typical[sn] = v.length ? v[v.length >> 1] : 0; }
+      if (r.length < typical[sn] * 0.8) { log.push(`${sn}${d} 更新途中（${r.length}台）`); continue; }
+    }
     if (r && r.length) { r.forEach(x => rows.push([sn, d, ...x])); have.add(sn + d); added += r.length; }
     else if (d < twoDaysAgo) miss.add(sn + d);
     if (i % 20 === 19) {        // 途中経過を保存（途中で止まっても続きから再開できる）
@@ -182,10 +191,10 @@ async function main() {
   } else {
     const n = new Notification();
     n.title = 'ジャグラー 今日の予想';
-    n.body = ['本館', '新館', ...PSC.map(x => x.name)].map(s => {
+    n.body = [...STORES.map(x => x[0]), ...PSC.map(x => x.name)].map(s => {
       const S = out.stores[s];
       if (!S) return s + ': データなし';
-      return `${s}（${S.typ === '旧イベ' ? '旧イベ日' : S.typ}）: ` + S.preds.slice(0, 5).map(p => `${p[0]} ${Math.round(p[2] * 100)}%`).join(' / ');
+      return `${s}（${S.typ === '旧イベ' ? '旧イベ日' : S.typ}）: ` + S.preds.slice(0, 3).map(p => `${p[0]} ${Math.round(p[2] * 100)}%`).join(' / ');
     }).join('\n') + '\n（新橋UNOはアプリを開いたときに取り込みます）';
     await n.schedule();
   }
