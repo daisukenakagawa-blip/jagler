@@ -1,0 +1,42 @@
+name: 設定予想の毎朝更新
+
+on:
+  schedule:
+    # 日本時間 7:05・8:05・9:05・10:05・11:05（UTCで指定）。前日分が未掲載なら次の回で取り込む
+    - cron: '5 22,23,0,1,2 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '新しいデータが無くても予想を作り直す'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Tokyo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: ペカセンから取り込み・学習・予想
+        run: node scripts/update.mjs ${{ inputs.force && '--force' || '' }}
+      - name: 変更があれば保存
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add predict.json data/
+          if git diff --cached --quiet; then echo "変更なし"; exit 0; fi
+          git commit -m "データ更新 $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M')"
+          git push

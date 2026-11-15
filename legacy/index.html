@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ジャグラー データ分析ツール</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ジャグラー">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1a1a">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Crect width='180' height='180' rx='36' fill='%231a1a1a'/%3E%3Ctext x='90' y='128' font-size='110' text-anchor='middle'%3E%F0%9F%8E%B0%3C/text%3E%3C/svg%3E">
+<style>body{font-family:-apple-system,sans-serif;background:#f5f6fa;color:#333;margin:0;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center}</style>
+</head>
+<body>
+<div><div style="font-size:40px">🎰</div><p id="ld">最新版を読み込み中…</p></div>
+<script>
+// 専用リポジトリのこのページ(自分のドメイン)で、開発元の最新ツールを毎回取得して表示する。
+// データはこのドメインに保存されるので消えにくく、更新は自動で反映される。
+var SRC="https://raw.githubusercontent.com/daisukenakagawa-blip/-/claude/zealous-allen-w3gc7r/jagler/jagler.html";
+fetch(SRC+"?_="+Date.now())
+  .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.text(); })
+  .then(function(html){ document.open(); document.write(html); document.close(); })
+  .catch(function(e){ document.getElementById("ld").innerHTML="読み込みに失敗しました（電波の良い所で再読み込みを）。<br>"+e; });
+</script>
+</body>
+</html>
