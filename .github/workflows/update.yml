@@ -4,6 +4,12 @@ on:
   schedule:
     # 日本時間 7:05・8:05・9:05・10:05・11:05（UTCで指定）。前日分が未掲載なら次の回で取り込む
     - cron: '5 22,23,0,1,2 * * *'
+  # スクリプトや設定を更新したときにも1回実行する
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/update.yml'
   workflow_dispatch:
     inputs:
       force:
