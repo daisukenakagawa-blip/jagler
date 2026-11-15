@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>エスパス上野 設定マップ</title>
+<title>ジャグラー設定マップ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
@@ -138,12 +138,13 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
 <body>
 <div class="wrap">
   <header>
-    <h1>エスパス上野 設定マップ</h1>
-    <p>ジャグラー全台。ペカセンの台データを毎朝取り込み、高設定が入りやすい台を予想しています</p>
+    <h1>ジャグラー設定マップ</h1>
+    <p>エスパス上野（本館・新館）と新橋UNOのジャグラー全台。台データを取り込み、高設定が入りやすい台を予想しています</p>
   </header>
   <div class="seg" id="storeSeg" role="group" aria-label="店舗">
     <button type="button" data-v="本館" aria-pressed="true">本館</button>
     <button type="button" data-v="新館" aria-pressed="false">新館</button>
+    <button type="button" data-v="新橋UNO" aria-pressed="false">新橋UNO</button>
   </div>
   <div class="status" id="status"></div>
   <div class="seg" id="viewSeg" role="group" aria-label="表示">
@@ -163,8 +164,8 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
   <main id="view"><div class="err">データを読み込んでいます…</div></main>
   <section class="note">
     <p><b>期待度</b>：その台番に高設定（BIG・REGから設定4以上の確率75%以上）が入る確率の予想です。台番の過去の投入率（最近ほど重く）に、前日の台・島の状態と曜日・日付の効果を掛けています。効果の大きさは毎日データから学習し直しています。</p>
-    <p><b>特日</b>：本館は21日・25日、新館は4のつく日とゾロ目。<b>旧イベ日</b>：本館は1・7・11・21・22・25日、ゾロ目、第1土曜。新館は4・7のつく日とゾロ目。</p>
-    <p>高設定の判定は、本当の設定6でも5〜8割しか見つけられません。全台設定1の店でも約2%は高設定と判定されます。差枚はスランプグラフからの推定値です。</p>
+    <p><b>特日</b>：本館は21日・25日、新館は4のつく日とゾロ目。<b>旧イベ日</b>：本館は1・7・11・21・22・25日、ゾロ目、第1土曜。新館は4・7のつく日とゾロ目。新橋UNOはイベント日がまだ分からないので、全日を通常日として扱っています。</p>
+    <p>高設定の判定は、本当の設定6でも5〜8割しか見つけられません。全台設定1の店でも約2%は高設定と判定されます。エスパスの差枚はスランプグラフからの推定値、新橋UNOはサイトの出枚数です。新橋UNOはサイトに直近6日分しか残らないため、アプリを開いた日に取りためています（6日以上あけると抜けが出ます）。</p>
   </section>
 </div>
 <div class="sheet-bg" id="sheetBg"></div>
@@ -196,7 +197,7 @@ function renderStatus(){
    <span class="upd">${stale?'<span class="stale">データが古くなっています。</span>':""}データ ${fmtD(s.lastData)}まで・更新 ${gs}${s.prevOk?"":"・前日のデータが無いため前日条件は使っていません"}</span>`;
 }
 function renderChips(list){
-  const order=["ネオアイムジャグラーEX","マイジャグラーV","マイジャグラー6","ゴーゴージャグラー3","ハッピージャグラーVIII","ファンキージャグラー2","ジャグラーガールズSS","ウルトラミラクルジャグラー","ミスタージャグラー"];
+  const order=["ネオアイムジャグラーEX","マイジャグラーV","マイジャグラー6","ゴーゴージャグラー3","ハッピージャグラーVIII","ファンキージャグラー2","ファンキージャグラー2KT","ジャグラーガールズSS","ウルトラミラクルジャグラー","ミスタージャグラー"];
   const ms=[...new Set(list)].sort((a,b)=>order.indexOf(a)-order.indexOf(b));if(st.machine!=="__all"&&!ms.includes(st.machine))st.machine="__all";
   const el=document.getElementById("chips");el.hidden=false;
   el.innerHTML=[`<button type="button" class="chip" data-m="__all" aria-pressed="${st.machine==="__all"}">全機種</button>`].concat(ms.map(m=>`<button type="button" class="chip" data-m="${m}" aria-pressed="${st.machine===m}">${short(m)}</button>`)).join("");
@@ -236,7 +237,7 @@ function renderMap(){
 }
 function renderCheck(){
   document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";
-  const s=S(),b=s.bt;const r10=b.h10/b.n10,rb=b.hb10/b.nb10,ra=b.hd/b.nd;
+  const s=S(),b=s.bt;if(!b.days||!s.yday){document.getElementById("view").innerHTML=`<div class="err">検証はデータが1か月ほどたまってから表示されます（今は${D.byno.filter(r=>r[0]===st.store).length}台・${(D.byno.find(r=>r[0]===st.store)||[])[15]||""}）。</div>`;return}const r10=b.h10/b.n10,rb=b.hb10/b.nb10,ra=b.hd/b.nd;
   const W2=320,H2=110,bw=W2/b.hist.length;
   const bars=b.hist.map((h,i)=>{const x=i*bw;const y=H2-14-(h[1]/10)*(H2-24);const ya=H2-14-(h[3]/h[4])*(H2-24);return `<rect x="${x+1}" y="${y}" width="${bw-2}" height="${H2-14-y}" rx="1.5" fill="var(--heat3)"/><rect x="${x+1}" y="${ya-1}" width="${bw-2}" height="2" fill="var(--ink)"/>`}).join("");
   const lab=[0,Math.floor(b.hist.length/2),b.hist.length-1].map((i,j)=>`<text x="${j===0?0:j===2?W2:i*bw+bw/2}" y="${H2-2}" text-anchor="${j===0?"start":j===2?"end":"middle"}">${+b.hist[i][0].slice(4,6)}/${+b.hist[i][0].slice(6)}</text>`).join("");
@@ -264,15 +265,15 @@ function openSheet(no,m){
   document.getElementById("sheetIn").innerHTML=`<div class="sh-head"><div><div class="no" id="shNo">${r.no}</div><div class="mname">${r.m}・${r.s}</div></div><button type="button" class="close" id="closeBtn">閉じる</button></div>
    ${p?`<div class="card" style="padding:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><span>${fmtD(S().target)}の期待度</span><b style="font-family:var(--font-display);font-size:24px">${pct(p[2]*100)}</b></div>${p[4].length?`<div class="reasons">${p[4].map(rsChip).join("")}</div>`:""}</div>`:""}
    <div class="grid4">${cells}</div>
-   <div class="kv"><div><span>平均推定設定</span><b>${r.es??"–"}</b></div><div><span>平均G数</span><b>${r.g.toLocaleString()}</b></div><div><span>平均差枚</span><b>${r.sa==null?"–":(r.sa>0?"+":"")+r.sa.toLocaleString()}</b></div><div><span>プラス率</span><b>${pct(r.pl)}</b></div><div><span>集計期間</span><b>${r.per}</b></div><div><span>特日の定義</span><b>${r.s==="本館"?"21・25日":"4の日・ゾロ目"}</b></div></div>`;
+   <div class="kv"><div><span>平均推定設定</span><b>${r.es??"–"}</b></div><div><span>平均G数</span><b>${r.g.toLocaleString()}</b></div><div><span>平均差枚</span><b>${r.sa==null?"–":(r.sa>0?"+":"")+r.sa.toLocaleString()}</b></div><div><span>プラス率</span><b>${pct(r.pl)}</b></div><div><span>集計期間</span><b>${r.per}</b></div><div><span>特日の定義</span><b>${r.s==="本館"?"21・25日":r.s==="新館"?"4の日・ゾロ目":"未設定"}</b></div></div>`;
   document.getElementById("sheet").classList.add("open");document.getElementById("sheetBg").classList.add("open");document.getElementById("closeBtn").onclick=closeSheet;document.getElementById("closeBtn").focus();
 }
 function closeSheet(){document.getElementById("sheet").classList.remove("open");document.getElementById("sheetBg").classList.remove("open")}
 document.getElementById("sheetBg").onclick=closeSheet;document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
-function render(){if(!D)return;if(!st.day)st.day=dayKey();renderStatus();setPressed("storeSeg",st.store);setPressed("viewSeg",st.view);setPressed("daySeg",st.day);
+function render(){if(!D)return;if(!D.stores[st.store]){setPressed("storeSeg",st.store);document.getElementById("status").innerHTML="";document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";document.getElementById("view").innerHTML=`<div class="err">${st.store}のデータはまだありません。Scriptableでアプリを開くと取り込みます。</div>`;return}if(!st.day)st.day=dayKey();renderStatus();setPressed("storeSeg",st.store);setPressed("viewSeg",st.view);setPressed("daySeg",st.day);
   document.getElementById("daySeg").hidden=!(st.view==="rank"||st.view==="map");
   ({pred:renderPred,rank:renderRank,map:renderMap,check:renderCheck})[st.view]();save();}
-document.querySelectorAll("#storeSeg button").forEach(b=>b.onclick=()=>{st.store=b.dataset.v;st.day=dayKey();st.machine="__all";st.showAll=false;render()});
+document.querySelectorAll("#storeSeg button").forEach(b=>b.onclick=()=>{st.store=b.dataset.v;st.day=D&&D.stores[st.store]?dayKey():null;st.machine="__all";st.showAll=false;render()});
 document.querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{st.view=b.dataset.v;st.showAll=false;render()});
 document.querySelectorAll("#daySeg button").forEach(b=>b.onclick=()=>{st.day=b.dataset.v;st.showAll=false;render()});
 fetch("predict.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(j=>{D=j;st.day=null;render()}).catch(e=>{document.getElementById("view").innerHTML=e.message==="503"?`<div class="err">まだ予想データがありません。初回の取り込み（数分）が終わってから再読み込みしてください。</div>`:`<div class="err">予想データを読み込めませんでした（${e.message}）。ページを再読み込みしてください。</div>`});
