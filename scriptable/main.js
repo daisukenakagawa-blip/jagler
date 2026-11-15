@@ -1,8 +1,7 @@
 // ===== Scriptable 用の本体（scriptable/build.mjs が parse.js・model.js と結合して bundle.js を作る） =====
 // ペカセンの店 [アプリでの名前, ペカセンの店ID, 取り込み開始日]
 const STORES = [['本館', 'esupasu-nittakuuenohon', '20260814'], ['新館', 'esupasu-nittakuuenoshin', '20260814'],
-  ['SUPER CONCORDE', 'shizuoka-101100', '20261001'], ['GOLD CONCORDE富士', 'shizuoka-101111', '20261001'],
-  ['123+N新市街', '123n-shinshigai', '20261001'], ['ゴードン祖師谷', 'tokyo-717801', '20261001'],
+  ['ゴードン祖師谷', 'tokyo-717801', '20261001'],
   ['マルハン新宿東宝', 'maruhan-shinjuku-toho', '20261001']];
 const WAIT_MS = 400;
 const PAGES = 'https://daisukenakagawa-blip.github.io/jagler/';
@@ -80,7 +79,10 @@ async function main() {
   const inApp = config.runsInApp;
 
   // ---- 1. 未取得の日をペカセンから取り込む ----
-  const rows = await readJson('rows.json', []);   // [店, 日付, 機種, 台番, G数, BIG, REG, 差枚]
+  const known = new Set([...STORES.map(x => x[0]), ...PSC.map(x => x.name)]);
+  const rows0 = await readJson('rows.json', []);   // [店, 日付, 機種, 台番, G数, BIG, REG, 差枚]
+  const rows = rows0.filter(r => known.has(r[0]));   // アプリから外した店のデータは捨てる
+  const dropped = rows.length !== rows0.length;
   const meta = await readJson('meta.json', { missing: [] });
   const have = new Set(rows.map(r => r[0] + r[1]));
   const miss = new Set(meta.missing);
@@ -127,7 +129,7 @@ async function main() {
     }
   }
   meta.missing = [...miss].sort();
-  if (added) fm.writeString(P('rows.json'), JSON.stringify(rows));
+  if (added || dropped) fm.writeString(P('rows.json'), JSON.stringify(rows));
   fm.writeString(P('meta.json'), JSON.stringify(meta));
 
 
@@ -162,7 +164,7 @@ async function main() {
 
   // ---- 2. 学習・予想・検証 ----
   let out = await readJson('predict.json', null);
-  if (rows.length && (added || !out || out.today !== today)) {
+  if (rows.length && (added || dropped || !out || out.today !== today)) {
     const objs = rows.map(r => ({ s: r[0], d: r[1], m: r[2], no: r[3], g: r[4], b: r[5], r: r[6], sa: r[7] }));
     out = runModel(objs, meta, today);
     out.today = today;
