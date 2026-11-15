@@ -1,7 +1,7 @@
 // ===== Scriptable 用の本体（scriptable/build.mjs が parse.js・model.js と結合して bundle.js を作る） =====
 // ペカセンの店 [アプリでの名前, ペカセンの店ID, 取り込み開始日]
 const STORES = [['本館', 'esupasu-nittakuuenohon', '20260814'], ['新館', 'esupasu-nittakuuenoshin', '20260814'],
-  ['ゴードン祖師谷', 'tokyo-717801', '20261001'],
+  ['ゴードン祖師谷', 'tokyo-717801', '20261001'], ['楽園川崎', 'rakuen-kawasaki', '20261001'],
   ['マルハン新宿東宝', 'maruhan-shinjuku-toho', '20261001']];
 const WAIT_MS = 400;
 const PAGES = 'https://daisukenakagawa-blip.github.io/jagler/';
