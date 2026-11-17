@@ -135,6 +135,7 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
 .yd span{font-family:var(--font-display);font-size:14px;padding:3px 8px;border-radius:6px;border:1px solid var(--line)}
 .yd span.hit{background:var(--heat4);color:var(--heat-ink-light);border-color:transparent}
 .yd span.na{opacity:.45;border-style:dashed}
+.yd span.mid{background:var(--heat2);color:var(--heat-ink-dark);border-color:transparent}
 .accday{display:grid;grid-template-columns:64px 1fr;gap:6px 10px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line)}
 .accday:last-child{border-bottom:0}
 .accday .dd{font-family:var(--font-display);font-size:13px;font-weight:700;line-height:1.3}
@@ -185,9 +186,9 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
   <div class="legend" id="legend"></div>
   <main id="view"><div class="err">データを読み込んでいます…</div></main>
   <section class="note">
-    <p><b>期待度</b>：その台番に高設定（BIG・REGから設定4以上の確率75%以上）が入る確率の予想です。台番の過去の投入率（最近ほど重く）に、前日の台・島の状態と曜日・日付の効果を掛けています。効果の大きさは毎日データから学習し直しています。</p>
-    <p><b>特日・旧イベ日</b>：エスパス上野本館は特日21・25日、旧イベ1・7・11・21・22・25日・ゾロ目・第1土曜。新館は特日4のつく日とゾロ目、旧イベ4・7のつく日とゾロ目。ゴードン祖師谷は9のつく日をイベ系として扱っています（過去3か月のデータで高設定率が高かった日）。それ以外の店は全日を通常日として扱い、曜日の効果だけ学習しています。</p>
-    <p>高設定の判定は、本当の設定6でも5〜8割しか見つけられません。全台設定1の店でも約2%は高設定と判定されます。エスパスの差枚はスランプグラフからの推定値、新橋UNOはサイトの出枚数です。新橋UNOはサイトに直近6日分しか残らないため、アプリを開いた日に取りためています（6日以上あけると抜けが出ます）。</p>
+    <p><b>期待度</b>：その台が<strong>設定4・5・6のどれかになる確率</strong>の予想です。台番の過去の実績（最近ほど重く）に、前日の台・島の状態と曜日・日付の効果を掛けています。効果の大きさは毎日データから学習し直しています。</p>
+    <p><b>特日・イベ系の日</b>（2026/8/14〜11/16のデータで設定4以上が多かった日）：上野本館は特日25日、イベ系5・1のつく日。上野新館は特日14・24日、イベ系4のつく日と15日。新宿東宝は第1土曜、ゴードン祖師谷は特日29日・イベ系9のつく日。それ以外の店は全日を通常日として扱い、曜日の効果だけ学習しています。</p>
+    <p><b>設定4以上の確率</b>：その日のG数・BIG・REGと、店全体の設定4以上の割合（店ごとにデータから推定）から計算しています。3,000G未満の台は判定に使っていません。エスパスの差枚はスランプグラフからの推定値、新橋UNOはサイトの出枚数です。新橋UNOはサイトに直近6日分しか残らないため、アプリを開いた日に取りためています（6日以上あけると抜けが出ます）。</p>
   </section>
 </div>
 <div class="sheet-bg" id="sheetBg"></div>
@@ -201,7 +202,7 @@ let st={store:"本館",view:"pred",day:null,machine:"__all",showAll:false};
 try{const s=JSON.parse(localStorage.getItem("uenoMap2")||"{}");if(s.store)st.store=s.store;if(s.view)st.view=s.view;}catch(e){}
 const fmtD=d=>{const x=new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));return `${x.getMonth()+1}/${x.getDate()}(${W[x.getDay()]})`};
 const pct=v=>v==null?"–":Math.round(v)+"%";
-function heat(v){if(v==null)return["var(--heat0)","var(--muted)"];const s=[[10,"--heat0"],[15,"--heat1"],[20,"--heat2"],[28,"--heat3"],[40,"--heat4"],[999,"--heat5"]];let i=0;while(v>=s[i][0])i++;return[`var(${s[i][1]})`,i>=4?"var(--heat-ink-light)":"var(--heat-ink-dark)"]}
+function heat(v){if(v==null)return["var(--heat0)","var(--muted)"];const s=[[12,"--heat0"],[18,"--heat1"],[25,"--heat2"],[33,"--heat3"],[45,"--heat4"],[999,"--heat5"]];let i=0;while(v>=s[i][0])i++;return[`var(${s[i][1]})`,i>=4?"var(--heat-ink-light)":"var(--heat-ink-dark)"]}
 // byno row: [s,no,m,all,t,e,n,cA,cT,cE,cN,es,g,sa,pl,per]
 const B=r=>({s:r[0],no:r[1],m:r[2],all:r[3],t:r[4],e:r[5],n:r[6],c_all:r[7],c_t:r[8],c_e:r[9],c_n:r[10],es:r[11],g:r[12],sa:r[13],pl:r[14],per:r[15]});
 const cnt=(r,k)=>r["c_"+k];
@@ -225,7 +226,7 @@ function renderChips(list){
   el.innerHTML=[`<button type="button" class="chip" data-m="__all" aria-pressed="${st.machine==="__all"}">全機種</button>`].concat(ms.map(m=>`<button type="button" class="chip" data-m="${m}" aria-pressed="${st.machine===m}">${short(m)}</button>`)).join("");
   el.querySelectorAll(".chip").forEach(b=>b.onclick=()=>{st.machine=b.dataset.m;st.showAll=false;render()});
 }
-function legend(label){const L=[["10%未満","--heat0"],["10〜15","--heat1"],["15〜20","--heat2"],["20〜28","--heat3"],["28〜40","--heat4"],["40%以上","--heat5"]];document.getElementById("legend").innerHTML=`<span>${label}：</span>`+L.map(([t,c])=>`<span><span class="sw" style="background:var(${c})"></span> ${t}</span>`).join("")}
+function legend(label){const L=[["12%未満","--heat0"],["12〜18","--heat1"],["18〜25","--heat2"],["25〜33","--heat3"],["33〜45","--heat4"],["45%以上","--heat5"]];document.getElementById("legend").innerHTML=`<span>${label}：</span>`+L.map(([t,c])=>`<span><span class="sw" style="background:var(${c})"></span> ${t}</span>`).join("")}
 const rsChip=([k,f])=>`<span class="rs ${f>1?"up":"dn"}">${D.codes[k]} ${f>1?"↑":"↓"}${f.toFixed(2)}</span>`;
 const DAYCODES=["afterT","afterE","sat","sun"];
 
@@ -242,15 +243,15 @@ function renderPred(){
 }
 function rowsB(){return D.byno.map(B).filter(r=>r.s===st.store&&(st.machine==="__all"||r.m===st.machine))}
 function renderRank(){
-  const k=st.day;renderChips(D.byno.filter(r=>r[0]===st.store).map(r=>r[2]));legend(DAYLABEL[k]+"の投入率");
+  const k=st.day;renderChips(D.byno.filter(r=>r[0]===st.store).map(r=>r[2]));legend(DAYLABEL[k]+"の設定4以上率");
   const pool=D.byno.map(B).filter(r=>r.s===st.store);const H=pool.reduce((a,r)=>a+cnt(r,k)[0],0),N=pool.reduce((a,r)=>a+cnt(r,k)[1],0);const prior=N?H/N:.15,A=8;const sc=r=>{const c=cnt(r,k);return(c[0]+A*prior)/(c[1]+A)};
   const rs=rowsB().sort((a,b)=>sc(b)-sc(a));const lim=st.showAll?rs.length:20;
   document.getElementById("view").innerHTML=`<div class="list">${rs.slice(0,lim).map((r,i)=>{const v=r[k],c=cnt(r,k),[bg]=heat(v);const few=c[1]<MIN_N[k];
-    return `<button type="button" class="row" data-no="${r.no}" data-m="${r.m}"><span class="rank">${i+1}</span><span class="no">${r.no}</span><span class="mid"><span class="mname">${r.m}</span><span class="bar"><i style="width:${Math.min(100,(v||0)/60*100)}%;background:${bg}"></i></span></span><span class="val"><b>${pct(v)}</b><small>${c[0]}回/${c[1]}日${few?'<span class="few">少</span>':""}</small></span></button>`}).join("")}${rs.length>lim?`<button type="button" class="more" id="more">残り${rs.length-lim}台を表示</button>`:""}</div><p class="note" style="margin-top:8px">並び順は、判定できた日が少ない台の数字を店全体の平均に寄せて割り引いたうえでの順番です。</p>`;
+    return `<button type="button" class="row" data-no="${r.no}" data-m="${r.m}"><span class="rank">${i+1}</span><span class="no">${r.no}</span><span class="mid"><span class="mname">${r.m}</span><span class="bar"><i style="width:${Math.min(100,(v||0)/60*100)}%;background:${bg}"></i></span></span><span class="val"><b>${pct(v)}</b><small>約${c[0]}/${c[1]}日${few?'<span class="few">少</span>':""}</small></span></button>`}).join("")}${rs.length>lim?`<button type="button" class="more" id="more">残り${rs.length-lim}台を表示</button>`:""}</div><p class="note" style="margin-top:8px">並び順は、判定できた日が少ない台の数字を店全体の平均に寄せて割り引いたうえでの順番です。</p>`;
   const m=document.getElementById("more");if(m)m.onclick=()=>{st.showAll=true;render()};bindOpen();
 }
 function renderMap(){
-  const k=st.day;renderChips(D.byno.filter(r=>r[0]===st.store).map(r=>r[2]));legend(DAYLABEL[k]+"の投入率");
+  const k=st.day;renderChips(D.byno.filter(r=>r[0]===st.store).map(r=>r[2]));legend(DAYLABEL[k]+"の設定4以上率");
   const rs=rowsB().sort((a,b)=>a.no-b.no);const g={};rs.forEach(r=>{(g[r.m]=g[r.m]||[]).push(r)});const isl=[];
   Object.entries(g).forEach(([m,a])=>{let cur=[];a.forEach(r=>{if(cur.length&&r.no!==cur[cur.length-1].no+1){isl.push([m,cur]);cur=[]}cur.push(r)});if(cur.length)isl.push([m,cur])});isl.sort((x,y)=>x[1][0].no-y[1][0].no);
   const pm=new Map(S().preds.map(p=>[p[0]+"|"+p[1],p[2]]));
@@ -269,19 +270,20 @@ function renderCheck(){
   document.getElementById("view").innerHTML=`<div class="islands">
    <div class="card"><h2>予想の当たり具合（直近${b.days}日）</h2>
     <div class="big3"><div><small>予想上位10台</small><b>${(r10*100).toFixed(1)}%</b></div><div><small>台の実績だけで選んだ10台</small><b>${(rb*100).toFixed(1)}%</b></div><div><small>その日の店平均</small><b>${(ra*100).toFixed(1)}%</b></div></div>
-    <p class="note" style="margin:0">毎日、その日より前のデータだけで予想を作り直し、実際に高設定だった台の割合を数えています。予想上位10台は店平均の<strong>${(r10/ra).toFixed(2)}倍</strong>でした。</p>
+    <p class="note" style="margin:0">毎日、その日より前のデータだけで予想を作り直し、実際に設定4以上だった割合（推定）を数えています。予想上位10台は店平均の<strong>${(r10/ra).toFixed(2)}倍</strong>でした。</p>
     <svg class="chart" viewBox="0 0 ${W2} ${H2}" role="img" aria-label="日別の予想上位10台の的中率">${grid}${bars}${lab}</svg>
-    <p class="note" style="margin:0">棒：予想上位10台のうち高設定だった割合／横線：その日の店平均</p></div>
-   <div class="card"><h2>${fmtD(y.d)}の答え合わせ</h2><p class="note" style="margin:0">前日までのデータで作った予想上位10台（3,000G以上回った台）。色付きが高設定でした。</p>
-    <div class="yd">${y.top.map(t=>`<span class="${t[3]?"hit":""}">${t[0]}</span>`).join("")}</div><p class="note" style="margin:0">${y.top.filter(t=>t[3]).length}台/${y.top.length}台が高設定</p></div>
-   <div class="card"><h2>学習した根拠（台ごとの条件）</h2><p class="note" style="margin:0">その台の普段の投入率と比べて何倍入ったか。×1.00は効果なし。</p>
+    <p class="note" style="margin:0">棒：予想上位10台のうち設定4以上だった割合／横線：その日の店平均</p></div>
+   <div class="card"><h2>${fmtD(y.d)}の答え合わせ</h2><p class="note" style="margin:0">前日までのデータで作った予想上位10台（3,000G以上回った台）。色が濃いほど設定4以上の可能性が高い台でした。</p>
+    <div class="yd">${y.top.map(t=>`<span class="${qc(t[3])}">${t[0]}</span>`).join("")}</div><p class="note" style="margin:0">設定4以上は推定${y.top.reduce((a,t)=>a+t[3],0).toFixed(1)}台/${y.top.length}台</p></div>
+   <div class="card"><h2>学習した根拠（台ごとの条件）</h2><p class="note" style="margin:0">その台の普段の設定4以上率と比べて何倍入ったか。×1.00は効果なし。</p>
     <table class="f"><thead><tr><th>前日の条件</th><th>通常日</th><th>件数</th><th>イベ系</th><th>件数</th></tr></thead><tbody>${facRows(s.fac.N,s.fac.ET)}</tbody></table></div>
    <div class="card"><h2>学習した根拠（日付・曜日）</h2><table class="f"><thead><tr><th>その日の条件</th><th>通常日</th><th>件数</th><th>イベ系</th><th>件数</th></tr></thead><tbody>${facRows(s.dfac.N,s.dfac.ET)}</tbody></table></div>
    <div class="card"><h2>データ</h2><p class="note" style="margin:0">取り込み済み ${D.rowCount.toLocaleString()}件。データが無い日：${D.missing.filter(m=>m.startsWith(st.store)).map(m=>fmtD(m.slice(2))).join("、")||"なし"}</p></div>
   </div>`;
 }
 let accSrc="real";
-function accSum(days){let h=0,n=0,na=0;days.forEach(([d,t])=>t.forEach(q=>{if(q[3]===1){h++;n++}else if(q[3]===0)n++;else na++}));return {h,n,na}}
+const qc=q=>q<0?"na":q>=0.5?"hit":q>=0.25?"mid":"";
+function accSum(days){let h=0,n=0,na=0;days.forEach(([d,t])=>t.forEach(q=>{if(q[3]>=0){h+=q[3];n++}else na++}));return {h,n,na}}
 function calAvg(cal){const h=cal.reduce((a,c)=>a+c[1],0),n=cal.reduce((a,c)=>a+c[2],0);return n?h/n:null}
 function accBlock(A,label,isReal){
   const days=A.days.slice().reverse(),sm=accSum(A.days),avg=calAvg(A.cal),r10=sm.n?sm.h/sm.n:null;
@@ -290,14 +292,14 @@ function accBlock(A,label,isReal){
   const cal=A.cal.map((c,i)=>c[2]?`<span>${BIN[i]}</span><span class="bars"><i class="p" style="width:${c[0]/c[2]/mx*100}%"></i><i class="a" style="width:${c[1]/c[2]/mx*100}%"></i></span><span class="v">実際 ${pct(c[1]/c[2]*100)}<br><small>予想${pct(c[0]/c[2]*100)}・${c[2]}台</small></span>`:"").join("");
   const W2="日月火水木金土";
   const list=days.map(([d,t])=>{const s2=accSum([[d,t]]);const x=new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));
-    return `<div class="accday"><div class="dd">${x.getMonth()+1}/${x.getDate()}(${W2[x.getDay()]})<small>${s2.h}/${s2.n}台</small></div><div class="yd">${t.map(q=>`<span class="${q[3]===1?"hit":q[3]===0?"":"na"}" title="${q[1]} 期待度${Math.round(q[2]*100)}%">${q[0]}</span>`).join("")}</div></div>`}).join("");
+    return `<div class="accday"><div class="dd">${x.getMonth()+1}/${x.getDate()}(${W2[x.getDay()]})<small>約${s2.h.toFixed(1)}/${s2.n}台</small></div><div class="yd">${t.map(q=>`<span class="${qc(q[3])}" title="${q[1]} 期待度${Math.round(q[2]*100)}%${q[3]>=0?" → 実際"+Math.round(q[3]*100)+"%":""}">${q[0]}</span>`).join("")}</div></div>`}).join("");
   return `<div class="card"><h2>${label}</h2>
     <div class="big3"><div><small>予想上位10台</small><b>${r10==null?"–":pct(r10*100)}</b></div><div><small>店全体の平均</small><b>${avg==null?"–":pct(avg*100)}</b></div><div><small>店平均の何倍</small><b>${r10!=null&&avg?(r10/avg).toFixed(2)+"倍":"–"}</b></div></div>
-    <p class="note" style="margin:0">${A.days.length}日分。予想上位10台のうち、3,000G以上回って判定できた${sm.n}台中${sm.h}台が高設定でした（3,000G未満で判定できなかった台が${sm.na}台）。${isReal?"アプリがその日の朝に出した予想そのものを、翌日のデータで答え合わせしています。":"毎日、その日より前のデータだけで予想を作り直して答え合わせしたものです。"}</p></div>
-   <div class="card"><h2>期待度は当たっていたか</h2><p class="note" style="margin:0">予想した期待度ごとに、実際に高設定だった割合。2本の長さが近いほど、期待度の数字が正確です。</p>
-    <div class="lg"><span><i style="background:var(--line)"></i>予想した期待度</span><span><i style="background:var(--heat4)"></i>実際の高設定率</span></div>
+    <p class="note" style="margin:0">${A.days.length}日分。予想上位10台のうち3,000G以上回った${sm.n}台を調べると、設定4以上だったのは推定${sm.h.toFixed(1)}台でした（3,000G未満で判定できなかった台が${sm.na}台）。${isReal?"アプリがその日の朝に出した予想そのものを、翌日のデータで答え合わせしています。":"毎日、その日より前のデータだけで予想を作り直して答え合わせしたものです。"}</p></div>
+   <div class="card"><h2>期待度は当たっていたか</h2><p class="note" style="margin:0">予想した期待度ごとに、実際に設定4以上だった割合（推定）。2本の長さが近いほど、期待度の数字が正確です。</p>
+    <div class="lg"><span><i style="background:var(--line)"></i>予想した期待度</span><span><i style="background:var(--heat4)"></i>実際の設定4以上率</span></div>
     <div class="cal">${cal}</div></div>
-   <div class="card"><h2>日ごとの答え合わせ</h2><p class="note" style="margin:0">その日の予想上位10台（左ほど期待度が高い）。<span class="yd" style="display:inline-flex"><span class="hit">色付き</span></span>＝高設定、白＝外れ、<span class="yd" style="display:inline-flex"><span class="na">点線</span></span>＝3,000G未満で判定できず。</p>${list}</div>`;
+   <div class="card"><h2>日ごとの答え合わせ</h2><p class="note" style="margin:0">その日の予想上位10台（左ほど期待度が高い）。<span class="yd" style="display:inline-flex"><span class="hit">濃い</span></span>＝設定4以上の可能性50%以上、<span class="yd" style="display:inline-flex"><span class="mid">薄い</span></span>＝25〜50%、白＝25%未満、<span class="yd" style="display:inline-flex"><span class="na">点線</span></span>＝3,000G未満で判定できず。</p>${list}</div>`;
 }
 function renderAcc(){
   document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";
@@ -313,7 +315,7 @@ function renderAcc(){
 function bindOpen(){document.querySelectorAll("[data-no]").forEach(el=>el.onclick=()=>openSheet(+el.dataset.no,el.dataset.m))}
 function openSheet(no,m){
   const r=D.byno.map(B).find(x=>x.s===st.store&&x.no===no&&x.m===m);const p=S().preds.find(x=>x[0]===no&&x[1]===m);if(!r)return;
-  const cells=["t","e","n","all"].map(k=>{const v=r[k],c=cnt(r,k),[bg,ink]=heat(v);return `<div class="cell" style="background:${bg};color:${ink}"><small>${DAYLABEL[k]}</small><b>${pct(v)}</b><span>${c[0]}回/${c[1]}日</span></div>`}).join("");
+  const cells=["t","e","n","all"].map(k=>{const v=r[k],c=cnt(r,k),[bg,ink]=heat(v);return `<div class="cell" style="background:${bg};color:${ink}"><small>${DAYLABEL[k]}</small><b>${pct(v)}</b><span>約${c[0]}/${c[1]}日</span></div>`}).join("");
   document.getElementById("sheetIn").innerHTML=`<div class="sh-head"><div><div class="no" id="shNo">${r.no}</div><div class="mname">${r.m}・${r.s}</div></div><button type="button" class="close" id="closeBtn">閉じる</button></div>
    ${p?`<div class="card" style="padding:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><span>${fmtD(S().target)}の期待度</span><b style="font-family:var(--font-display);font-size:24px">${pct(p[2]*100)}</b></div>${p[4].length?`<div class="reasons">${p[4].map(rsChip).join("")}</div>`:""}</div>`:""}
    <div class="grid4">${cells}</div>

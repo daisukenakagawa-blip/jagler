@@ -166,10 +166,11 @@ async function main() {
 
   // ---- 2. 学習・予想・検証 ----
   let out = await readJson('predict.json', null);
-  if (rows.length && (added || dropped || !out || out.today !== today)) {
+  if (rows.length && (added || dropped || !out || out.today !== today || out.ver !== 2)) {   // ver 2：期待度＝設定4・5・6の確率
     const objs = rows.map(r => ({ s: r[0], d: r[1], m: r[2], no: r[3], g: r[4], b: r[5], r: r[6], sa: r[7] }));
     // アプリが出した予想を記録しておき、データが入った日に答え合わせする（60日分）
-    const plog = await readJson('predlog.json', {});
+    let plog = await readJson('predlog.json', {});
+    if (!out || out.ver !== 2) plog = {};   // 期待度の意味が変わったので古い記録は捨てる
     out = runModel(objs, meta, today, plog);
     for (const [sn, S] of Object.entries(out.stores)) {
       if (!S.preds || !(S.target > S.lastData)) continue;
