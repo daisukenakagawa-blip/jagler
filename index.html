@@ -43,6 +43,7 @@ header h1{font-family:var(--font-body);font-weight:900;font-size:22px;margin:0;l
 header p{margin:2px 0 0;color:var(--muted);font-size:12.5px}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
 .seg button{appearance:none;border:0;background:transparent;color:var(--ink);font:inherit;font-weight:700;font-size:14px;padding:9px 4px;border-radius:7px;cursor:pointer}
+#viewSeg button{font-size:12.5px;padding:9px 2px}
 .seg.stores{grid-auto-flow:row;grid-template-columns:repeat(3,1fr)}
 .seg.stores button{font-size:12.5px;padding:8px 2px;line-height:1.25}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
@@ -133,6 +134,20 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
 .yd{display:flex;flex-wrap:wrap;gap:6px}
 .yd span{font-family:var(--font-display);font-size:14px;padding:3px 8px;border-radius:6px;border:1px solid var(--line)}
 .yd span.hit{background:var(--heat4);color:var(--heat-ink-light);border-color:transparent}
+.yd span.na{opacity:.45;border-style:dashed}
+.accday{display:grid;grid-template-columns:64px 1fr;gap:6px 10px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line)}
+.accday:last-child{border-bottom:0}
+.accday .dd{font-family:var(--font-display);font-size:13px;font-weight:700;line-height:1.3}
+.accday .dd small{display:block;color:var(--muted);font-weight:400;font-size:11.5px}
+.accday .yd span{font-size:12.5px;padding:2px 6px}
+.cal{display:grid;grid-template-columns:72px 1fr 64px;gap:4px 8px;align-items:center;font-size:12.5px}
+.cal .bars{display:flex;flex-direction:column;gap:3px}
+.cal .bars i{display:block;height:9px;border-radius:3px;min-width:2px}
+.cal .bars i.p{background:var(--line)}.cal .bars i.a{background:var(--heat4)}
+.cal .v{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--font-display);line-height:1.25}
+.cal .v small{color:var(--muted)}
+.lg{display:flex;gap:12px;font-size:11.5px;color:var(--muted);align-items:center}.lg i{display:inline-block;width:14px;height:9px;border-radius:3px;margin-right:4px;vertical-align:middle}
+.seg.src{margin-top:2px}
 [hidden]{display:none!important}
 .err{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;color:var(--warn)}
 </style>
@@ -157,6 +172,7 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
     <button type="button" data-v="pred" aria-pressed="true">今日の予想</button>
     <button type="button" data-v="rank" aria-pressed="false">台番の実績</button>
     <button type="button" data-v="map" aria-pressed="false">島マップ</button>
+    <button type="button" data-v="acc" aria-pressed="false">答え合わせ</button>
     <button type="button" data-v="check" aria-pressed="false">検証</button>
   </div>
   <div class="seg" id="daySeg" role="group" aria-label="日の種類" hidden>
@@ -264,6 +280,36 @@ function renderCheck(){
    <div class="card"><h2>データ</h2><p class="note" style="margin:0">取り込み済み ${D.rowCount.toLocaleString()}件。データが無い日：${D.missing.filter(m=>m.startsWith(st.store)).map(m=>fmtD(m.slice(2))).join("、")||"なし"}</p></div>
   </div>`;
 }
+let accSrc="real";
+function accSum(days){let h=0,n=0,na=0;days.forEach(([d,t])=>t.forEach(q=>{if(q[3]===1){h++;n++}else if(q[3]===0)n++;else na++}));return {h,n,na}}
+function calAvg(cal){const h=cal.reduce((a,c)=>a+c[1],0),n=cal.reduce((a,c)=>a+c[2],0);return n?h/n:null}
+function accBlock(A,label,isReal){
+  const days=A.days.slice().reverse(),sm=accSum(A.days),avg=calAvg(A.cal),r10=sm.n?sm.h/sm.n:null;
+  const BIN=["10%未満","10〜20%","20〜30%","30〜40%","40%以上"];
+  const mx=Math.max(0.5,...A.cal.filter(c=>c[2]).map(c=>Math.max(c[0]/c[2],c[1]/c[2])));
+  const cal=A.cal.map((c,i)=>c[2]?`<span>${BIN[i]}</span><span class="bars"><i class="p" style="width:${c[0]/c[2]/mx*100}%"></i><i class="a" style="width:${c[1]/c[2]/mx*100}%"></i></span><span class="v">${pct(c[1]/c[2]*100)}<small> / 予想${pct(c[0]/c[2]*100)}</small><br><small>${c[2]}台</small></span>`:"").join("");
+  const W2="日月火水木金土";
+  const list=days.map(([d,t])=>{const s2=accSum([[d,t]]);const x=new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));
+    return `<div class="accday"><div class="dd">${x.getMonth()+1}/${x.getDate()}(${W2[x.getDay()]})<small>${s2.h}/${s2.n}台</small></div><div class="yd">${t.map(q=>`<span class="${q[3]===1?"hit":q[3]===0?"":"na"}" title="${q[1]} 期待度${Math.round(q[2]*100)}%">${q[0]}</span>`).join("")}</div></div>`}).join("");
+  return `<div class="card"><h2>${label}</h2>
+    <div class="big3"><div><small>予想上位10台</small><b>${r10==null?"–":pct(r10*100)}</b></div><div><small>店全体の平均</small><b>${avg==null?"–":pct(avg*100)}</b></div><div><small>店平均の何倍</small><b>${r10!=null&&avg?(r10/avg).toFixed(2)+"倍":"–"}</b></div></div>
+    <p class="note" style="margin:0">${A.days.length}日分。予想上位10台のうち、3,000G以上回って判定できた${sm.n}台中${sm.h}台が高設定でした（3,000G未満で判定できなかった台が${sm.na}台）。${isReal?"アプリがその日の朝に出した予想そのものを、翌日のデータで答え合わせしています。":"毎日、その日より前のデータだけで予想を作り直して答え合わせしたものです。"}</p></div>
+   <div class="card"><h2>期待度は当たっていたか</h2><p class="note" style="margin:0">予想した期待度ごとに、実際に高設定だった割合。2本の長さが近いほど、期待度の数字が正確です。</p>
+    <div class="lg"><span><i style="background:var(--line)"></i>予想した期待度</span><span><i style="background:var(--heat4)"></i>実際の高設定率</span></div>
+    <div class="cal">${cal}</div></div>
+   <div class="card"><h2>日ごとの答え合わせ</h2><p class="note" style="margin:0">その日の予想上位10台（左ほど期待度が高い）。<span class="yd" style="display:inline-flex"><span class="hit">色付き</span></span>＝高設定、白＝外れ、<span class="yd" style="display:inline-flex"><span class="na">点線</span></span>＝3,000G未満で判定できず。</p>${list}</div>`;
+}
+function renderAcc(){
+  document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";
+  const s=S(),A=s.acc;if(!A){document.getElementById("view").innerHTML=`<div class="err">答え合わせのデータがまだありません。Scriptableでアプリを開き直してください。</div>`;return}
+  const hasReal=A.real.days.length>0;if(!hasReal)accSrc="bt";
+  const all=Object.entries(D.stores).filter(([k,v])=>v.acc).map(([k,v])=>{const B=v.acc.bt,sm=accSum(B.days),avg=calAvg(B.cal);return [k,sm.n?sm.h/sm.n:null,avg,B.days.length]}).filter(r=>r[3]);
+  const sumCard=`<div class="card"><h2>全店のまとめ（過去30日の再現）</h2><table class="f"><thead><tr><th>店</th><th>予想上位10台</th><th>店平均</th><th>倍率</th></tr></thead><tbody>${all.map(r=>`<tr><td>${r[0]}</td><td>${r[1]==null?"–":pct(r[1]*100)}</td><td>${r[2]==null?"–":pct(r[2]*100)}</td><td class="fv ${r[1]&&r[2]&&r[1]/r[2]>=1.2?"up":""}">${r[1]&&r[2]?(r[1]/r[2]).toFixed(2)+"倍":"–"}</td></tr>`).join("")}</tbody></table><p class="note" style="margin:0">倍率が1.2倍以上の店は、予想が役に立っている店です。1倍前後の店は、台番の傾向が弱く予想が当たりにくい店です。</p></div>`;
+  const seg=`<div class="seg src" id="srcSeg"><button type="button" data-v="real" aria-pressed="${accSrc==="real"}"${hasReal?"":" disabled"}>実際の予想${hasReal?"（"+A.real.days.length+"日）":"（記録中）"}</button><button type="button" data-v="bt" aria-pressed="${accSrc==="bt"}">過去30日の再現</button></div>`;
+  const note=hasReal?"":`<p class="note" style="margin:0">アプリが出した予想の記録は${fmtD(s.target)}の分から始まりました。翌日以降、ここに実際の答え合わせがたまっていきます。それまでは過去30日の再現を表示しています。</p>`;
+  document.getElementById("view").innerHTML=`<div class="islands">${seg}${note}${accSrc==="real"?accBlock(A.real,st.store+"：アプリの予想の的中",true):accBlock(A.bt,st.store+"：過去30日の再現",false)}${sumCard}</div>`;
+  document.querySelectorAll("#srcSeg button").forEach(b=>b.onclick=()=>{if(b.disabled)return;accSrc=b.dataset.v;renderAcc()});
+}
 function bindOpen(){document.querySelectorAll("[data-no]").forEach(el=>el.onclick=()=>openSheet(+el.dataset.no,el.dataset.m))}
 function openSheet(no,m){
   const r=D.byno.map(B).find(x=>x.s===st.store&&x.no===no&&x.m===m);const p=S().preds.find(x=>x[0]===no&&x[1]===m);if(!r)return;
@@ -278,7 +324,7 @@ function closeSheet(){document.getElementById("sheet").classList.remove("open");
 document.getElementById("sheetBg").onclick=closeSheet;document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 function render(){if(!D)return;if(!D.stores[st.store]){setPressed("storeSeg",st.store);document.getElementById("status").innerHTML="";document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";document.getElementById("view").innerHTML=`<div class="err">${st.store}のデータはまだありません。Scriptableでアプリを開くと取り込みます。</div>`;return}if(!st.day)st.day=dayKey();renderStatus();setPressed("storeSeg",st.store);setPressed("viewSeg",st.view);setPressed("daySeg",st.day);
   document.getElementById("daySeg").hidden=!(st.view==="rank"||st.view==="map");
-  ({pred:renderPred,rank:renderRank,map:renderMap,check:renderCheck})[st.view]();save();}
+  ({pred:renderPred,rank:renderRank,map:renderMap,acc:renderAcc,check:renderCheck})[st.view]();save();}
 document.querySelectorAll("#storeSeg button").forEach(b=>b.onclick=()=>{st.store=b.dataset.v;st.day=D&&D.stores[st.store]?dayKey():null;st.machine="__all";st.showAll=false;render()});
 document.querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{st.view=b.dataset.v;st.showAll=false;render()});
 document.querySelectorAll("#daySeg button").forEach(b=>b.onclick=()=>{st.day=b.dataset.v;st.showAll=false;render()});

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ジャグラー設定マップ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: one narrow column for a phone at the hall — controls on top, ranking or island map below, detail as a bottom sheet. */
+:root{
+  --bg:#f4f3f1; --surface:#ffffff; --ink:#1d1b1a; --muted:#6f6a66; --line:#e3dfdb;
+  --accent:#c2410c; --accent-ink:#ffffff;
+  --heat0:#efece8; --heat1:#fde7c7; --heat2:#fbc77e; --heat3:#f59e42; --heat4:#e0601e; --heat5:#b42318;
+  --heat-ink-dark:#1d1b1a; --heat-ink-light:#ffffff;
+  --warn:#8a6d00;
+  --font-display:"Chakra Petch","Zen Kaku Gothic New",system-ui,sans-serif;
+  --font-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141312; --surface:#1f1d1c; --ink:#f1ede9; --muted:#a39d97; --line:#34302d;
+    --accent:#f08a4b; --accent-ink:#1a0f08;
+    --heat0:#2a2725; --heat1:#4a3622; --heat2:#7a4f1f; --heat3:#b0621c; --heat4:#d9561a; --heat5:#e8402e;
+    --heat-ink-dark:#f1ede9; --heat-ink-light:#ffffff; --warn:#e2c35a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141312; --surface:#1f1d1c; --ink:#f1ede9; --muted:#a39d97; --line:#34302d;
+  --accent:#f08a4b; --accent-ink:#1a0f08;
+  --heat0:#2a2725; --heat1:#4a3622; --heat2:#7a4f1f; --heat3:#b0621c; --heat4:#d9561a; --heat5:#e8402e;
+  --heat-ink-dark:#f1ede9; --heat-ink-light:#ffffff; --warn:#e2c35a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%}
+.wrap{max-width:720px;margin:0 auto;padding:16px 16px 96px;display:flex;flex-direction:column;gap:14px}
+header h1{font-family:var(--font-body);font-weight:900;font-size:22px;margin:0;letter-spacing:.02em;text-wrap:balance}
+header p{margin:2px 0 0;color:var(--muted);font-size:12.5px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
+.seg button{appearance:none;border:0;background:transparent;color:var(--ink);font:inherit;font-weight:700;font-size:14px;padding:9px 4px;border-radius:7px;cursor:pointer}
+#viewSeg button{font-size:12.5px;padding:9px 2px}
+.seg.stores{grid-auto-flow:row;grid-template-columns:repeat(3,1fr)}
+.seg.stores button{font-size:12.5px;padding:8px 2px;line-height:1.25}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.seg button:focus-visible,.chip:focus-visible,.row:focus-visible,.tile:focus-visible,.link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.today{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px}
+.today b{font-family:var(--font-display);font-size:20px;font-weight:700}
+.today .txt{font-size:13px;color:var(--muted)}
+.today .txt strong{color:var(--ink)}
+.tip{font-size:13px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.tip h2{font-size:13px;margin:0 0 4px;color:var(--muted);font-weight:700}
+.tip ul{margin:0;padding-left:1.1em}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:12.5px;font-weight:500;padding:5px 10px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:700}
+.legend{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);flex-wrap:wrap}
+.legend .sw{width:22px;height:12px;border-radius:3px;display:inline-block}
+.list{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.row{display:grid;grid-template-columns:34px 64px 1fr 76px;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer;background:transparent;border-left:0;border-right:0;border-top:0;text-align:left;font:inherit;color:inherit;width:100%}
+.row:last-child{border-bottom:0}
+.rank{font-family:var(--font-display);color:var(--muted);font-weight:600;font-size:14px;text-align:right}
+.no{font-family:var(--font-display);font-weight:700;font-size:22px;font-variant-numeric:tabular-nums}
+.mid{min-width:0;display:flex;flex-direction:column;gap:4px}
+.mname{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:8px;background:var(--heat0);border-radius:4px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:4px}
+.val{text-align:right;display:flex;flex-direction:column;line-height:1.15}
+.val b{font-family:var(--font-display);font-size:20px;font-variant-numeric:tabular-nums}
+.val small{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.few{display:inline-block;font-size:10.5px;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:1px}
+.more{appearance:none;border:0;background:transparent;color:var(--accent);font:inherit;font-weight:700;padding:12px;cursor:pointer}
+.islands{display:flex;flex-direction:column;gap:12px}
+.island{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.island h3{margin:0 0 8px;font-size:13px;display:flex;justify-content:space-between;gap:8px;font-weight:700}
+.island h3 span{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:5px}
+.tile{appearance:none;border:0;border-radius:7px;padding:6px 2px 5px;display:flex;flex-direction:column;align-items:center;cursor:pointer;font:inherit;line-height:1.1}
+.tile .tn{font-family:var(--font-display);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.tile .tv{font-family:var(--font-display);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.tile.na{opacity:.55}
+.note{font-size:12px;color:var(--muted)}
+.note p{margin:0 0 6px}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;z-index:10}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:85%;overflow:auto;background:var(--surface);border-radius:16px 16px 0 0;padding:16px 16px 28px;display:none;z-index:11;box-shadow:0 -8px 30px rgba(0,0,0,.25)}
+.sheet.open,.sheet-bg.open{display:block}
+.sheet-in{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.sh-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.sh-head .no{font-size:34px;line-height:1}
+.sh-head .mname{font-size:14px;color:var(--ink);white-space:normal}
+.close{appearance:none;border:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;font-weight:700;border-radius:8px;padding:6px 12px;cursor:pointer}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.cell{border-radius:8px;padding:8px 6px;text-align:center;display:flex;flex-direction:column;gap:2px}
+.cell small{font-size:11px;font-weight:700}
+.cell b{font-family:var(--font-display);font-size:20px;font-variant-numeric:tabular-nums}
+.cell span{font-size:11px;font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:13px}
+.kv div{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:3px 0}
+.kv span{color:var(--muted)}
+.kv b{font-variant-numeric:tabular-nums}
+.hist{font-size:12.5px;color:var(--muted)}
+@media (max-width:400px){.row{grid-template-columns:26px 56px 1fr 66px;gap:8px}.no{font-size:20px}.grid4{grid-template-columns:repeat(2,1fr)}}
+@media (prefers-reduced-motion:no-preference){.sheet.open{animation:up .18s ease-out}@keyframes up{from{transform:translateY(16px);opacity:.6}to{transform:none;opacity:1}}}
+</style>
+<style>
+.status{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px}
+.status b{font-family:var(--font-display);font-size:20px}
+.status .txt{font-size:13px;color:var(--muted)}
+.status .txt strong{color:var(--ink)}
+.status .upd{grid-column:1/-1;font-size:11.5px;color:var(--muted)}
+.stale{color:var(--warn);font-weight:700}
+.reasons{display:flex;flex-wrap:wrap;gap:4px}
+.rs{font-size:11px;border-radius:4px;padding:0 5px;border:1px solid var(--line);white-space:nowrap}
+.rs.up{color:var(--accent);border-color:currentColor}
+.rs.dn{color:var(--muted)}
+.prow{grid-template-columns:30px 60px 1fr 64px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.card h2{margin:0;font-size:15px}
+.big3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.big3 div{display:flex;flex-direction:column;gap:2px}
+.big3 small{font-size:11.5px;color:var(--muted)}
+.big3 b{font-family:var(--font-display);font-size:24px;font-variant-numeric:tabular-nums}
+.chart{width:100%;height:auto;display:block}
+.chart text{fill:var(--muted);font-size:10px;font-family:var(--font-display)}
+table.f{width:100%;border-collapse:collapse;font-size:13px}
+table.f th,table.f td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+table.f th:first-child,table.f td:first-child{text-align:left}
+table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
+.fv.up{color:var(--accent);font-weight:700}.fv.dn{color:var(--muted)}
+.yd{display:flex;flex-wrap:wrap;gap:6px}
+.yd span{font-family:var(--font-display);font-size:14px;padding:3px 8px;border-radius:6px;border:1px solid var(--line)}
+.yd span.hit{background:var(--heat4);color:var(--heat-ink-light);border-color:transparent}
+.yd span.na{opacity:.45;border-style:dashed}
+.accday{display:grid;grid-template-columns:64px 1fr;gap:6px 10px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line)}
+.accday:last-child{border-bottom:0}
+.accday .dd{font-family:var(--font-display);font-size:13px;font-weight:700;line-height:1.3}
+.accday .dd small{display:block;color:var(--muted);font-weight:400;font-size:11.5px}
+.accday .yd span{font-size:12.5px;padding:2px 6px}
+.cal{display:grid;grid-template-columns:72px 1fr 64px;gap:4px 8px;align-items:center;font-size:12.5px}
+.cal .bars{display:flex;flex-direction:column;gap:3px}
+.cal .bars i{display:block;height:9px;border-radius:3px;min-width:2px}
+.cal .bars i.p{background:var(--line)}.cal .bars i.a{background:var(--heat4)}
+.cal .v{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--font-display);line-height:1.25}
+.cal .v small{color:var(--muted)}
+.lg{display:flex;gap:12px;font-size:11.5px;color:var(--muted);align-items:center}.lg i{display:inline-block;width:14px;height:9px;border-radius:3px;margin-right:4px;vertical-align:middle}
+.seg.src{margin-top:2px}
+[hidden]{display:none!important}
+.err{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>ジャグラー設定マップ</h1>
+    <p>エスパス上野・マルハン新宿東宝ビル・ゴードン祖師谷・新橋UNO・セブンS川崎（20スロ）・楽園川崎店のジャグラー全台。台データを取り込み、高設定が入りやすい台を予想しています</p>
+  </header>
+  <div class="seg stores" id="storeSeg" role="group" aria-label="店舗">
+    <button type="button" data-v="本館" aria-pressed="true">上野本館</button>
+    <button type="button" data-v="新館" aria-pressed="false">上野新館</button>
+    <button type="button" data-v="マルハン新宿東宝" aria-pressed="false">新宿東宝</button>
+    <button type="button" data-v="ゴードン祖師谷" aria-pressed="false">ゴードン祖師谷</button>
+    <button type="button" data-v="新橋UNO" aria-pressed="false">新橋UNO</button>
+    <button type="button" data-v="セブンS川崎" aria-pressed="false">セブンS川崎</button>
+    <button type="button" data-v="楽園川崎" aria-pressed="false">楽園川崎</button>
+  </div>
+  <div class="status" id="status"></div>
+  <div class="seg" id="viewSeg" role="group" aria-label="表示">
+    <button type="button" data-v="pred" aria-pressed="true">今日の予想</button>
+    <button type="button" data-v="rank" aria-pressed="false">台番の実績</button>
+    <button type="button" data-v="map" aria-pressed="false">島マップ</button>
+    <button type="button" data-v="acc" aria-pressed="false">答え合わせ</button>
+    <button type="button" data-v="check" aria-pressed="false">検証</button>
+  </div>
+  <div class="seg" id="daySeg" role="group" aria-label="日の種類" hidden>
+    <button type="button" data-v="t" aria-pressed="false">特日</button>
+    <button type="button" data-v="e" aria-pressed="false">旧イベ日</button>
+    <button type="button" data-v="n" aria-pressed="false">通常日</button>
+    <button type="button" data-v="all" aria-pressed="false">全体</button>
+  </div>
+  <div class="chips" id="chips" role="group" aria-label="機種で絞り込む"></div>
+  <div class="legend" id="legend"></div>
+  <main id="view"><div class="err">データを読み込んでいます…</div></main>
+  <section class="note">
+    <p><b>期待度</b>：その台番に高設定（BIG・REGから設定4以上の確率75%以上）が入る確率の予想です。台番の過去の投入率（最近ほど重く）に、前日の台・島の状態と曜日・日付の効果を掛けています。効果の大きさは毎日データから学習し直しています。</p>
+    <p><b>特日・旧イベ日</b>：エスパス上野本館は特日21・25日、旧イベ1・7・11・21・22・25日・ゾロ目・第1土曜。新館は特日4のつく日とゾロ目、旧イベ4・7のつく日とゾロ目。ゴードン祖師谷は9のつく日をイベ系として扱っています（過去3か月のデータで高設定率が高かった日）。それ以外の店は全日を通常日として扱い、曜日の効果だけ学習しています。</p>
+    <p>高設定の判定は、本当の設定6でも5〜8割しか見つけられません。全台設定1の店でも約2%は高設定と判定されます。エスパスの差枚はスランプグラフからの推定値、新橋UNOはサイトの出枚数です。新橋UNOはサイトに直近6日分しか残らないため、アプリを開いた日に取りためています（6日以上あけると抜けが出ます）。</p>
+  </section>
+</div>
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shNo"><div class="sheet-in" id="sheetIn"></div></div>
+<script>
+let D=null;
+const DAYLABEL={t:"特日",e:"旧イベ日",n:"通常日",all:"全体"};
+const MIN_N={all:20,e:8,n:15,t:4};
+const W="日月火水木金土";
+let st={store:"本館",view:"pred",day:null,machine:"__all",showAll:false};
+try{const s=JSON.parse(localStorage.getItem("uenoMap2")||"{}");if(s.store)st.store=s.store;if(s.view)st.view=s.view;}catch(e){}
+const fmtD=d=>{const x=new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));return `${x.getMonth()+1}/${x.getDate()}(${W[x.getDay()]})`};
+const pct=v=>v==null?"–":Math.round(v)+"%";
+function heat(v){if(v==null)return["var(--heat0)","var(--muted)"];const s=[[10,"--heat0"],[15,"--heat1"],[20,"--heat2"],[28,"--heat3"],[40,"--heat4"],[999,"--heat5"]];let i=0;while(v>=s[i][0])i++;return[`var(${s[i][1]})`,i>=4?"var(--heat-ink-light)":"var(--heat-ink-dark)"]}
+// byno row: [s,no,m,all,t,e,n,cA,cT,cE,cN,es,g,sa,pl,per]
+const B=r=>({s:r[0],no:r[1],m:r[2],all:r[3],t:r[4],e:r[5],n:r[6],c_all:r[7],c_t:r[8],c_e:r[9],c_n:r[10],es:r[11],g:r[12],sa:r[13],pl:r[14],per:r[15]});
+const cnt=(r,k)=>r["c_"+k];
+const short=m=>m.replace("ジャグラー","J").replace("マイJ6","マイJ VI");
+const S=()=>D.stores[st.store];
+function setPressed(id,v){document.querySelectorAll(`#${id} button`).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===v)))}
+function save(){try{localStorage.setItem("uenoMap2",JSON.stringify({store:st.store,view:st.view}))}catch(e){}}
+function dayKey(){const t=S().typ;return t==="特日"?"t":t==="旧イベ"?"e":"n"}
+
+function renderStatus(){
+  const s=S();const today=new Date();const td=today.getFullYear()+String(today.getMonth()+1).padStart(2,"0")+String(today.getDate()).padStart(2,"0");
+  const stale=s.target<td;
+  const g=new Date(D.gen);const gs=`${g.getMonth()+1}/${g.getDate()} ${String(g.getHours()).padStart(2,"0")}:${String(g.getMinutes()).padStart(2,"0")}`;
+  document.getElementById("status").innerHTML=`<b>${fmtD(s.target)}</b><span class="txt">予想対象日・${st.store}の<strong>${s.typ==="旧イベ"?"旧イベ日":s.typ}</strong>${s.why.length?"（"+s.why.join("・")+"）":""}</span>
+   <span class="upd">${stale?'<span class="stale">データが古くなっています。</span>':""}データ ${fmtD(s.lastData)}まで・更新 ${gs}${s.prevOk?"":"・前日のデータが無いため前日条件は使っていません"}</span>`;
+}
+function renderChips(list){
+  const order=["ネオアイムジャグラーEX","アイムジャグラーEX","マイジャグラーV","マイジャグラー6","ゴーゴージャグラー3","ハッピージャグラーVIII","ファンキージャグラー2","ファンキージャグラー2KT","ジャグラーガールズSS","ウルトラミラクルジャグラー","ミスタージャグラー"];
+  const ms=[...new Set(list)].sort((a,b)=>order.indexOf(a)-order.indexOf(b));if(st.machine!=="__all"&&!ms.includes(st.machine))st.machine="__all";
+  const el=document.getElementById("chips");el.hidden=false;
+  el.innerHTML=[`<button type="button" class="chip" data-m="__all" aria-pressed="${st.machine==="__all"}">全機種</button>`].concat(ms.map(m=>`<button type="button" class="chip" data-m="${m}" aria-pressed="${st.machine===m}">${short(m)}</button>`)).join("");
+  el.querySelectorAll(".chip").forEach(b=>b.onclick=()=>{st.machine=b.dataset.m;st.showAll=false;render()});
+}
+function legend(label){const L=[["10%未満","--heat0"],["10〜15","--heat1"],["15〜20","--heat2"],["20〜28","--heat3"],["28〜40","--heat4"],["40%以上","--heat5"]];document.getElementById("legend").innerHTML=`<span>${label}：</span>`+L.map(([t,c])=>`<span><span class="sw" style="background:var(${c})"></span> ${t}</span>`).join("")}
+const rsChip=([k,f])=>`<span class="rs ${f>1?"up":"dn"}">${D.codes[k]} ${f>1?"↑":"↓"}${f.toFixed(2)}</span>`;
+const DAYCODES=["afterT","afterE","sat","sun"];
+
+function renderPred(){
+  const s=S();renderChips(s.preds.map(p=>p[1]));legend("期待度");
+  const dayRs=(s.preds[0]||[,,,,[]])[4].filter(r=>DAYCODES.includes(r[0]));
+  let ps=s.preds.filter(p=>st.machine==="__all"||p[1]===st.machine);const lim=st.showAll?ps.length:20;
+  const head=dayRs.length?`<p class="note" style="margin:0 0 8px">今日の日付の効果：${dayRs.map(rsChip).join(" ")}（全台にかかっています）</p>`:"";
+  document.getElementById("view").innerHTML=head+`<div class="list">${ps.slice(0,lim).map((p,i)=>{const v=p[2]*100,[bg]=heat(v);const rs=p[4].filter(r=>!DAYCODES.includes(r[0]));
+    return `<button type="button" class="row prow" data-no="${p[0]}" data-m="${p[1]}"><span class="rank">${i+1}</span><span class="no">${p[0]}</span>
+     <span class="mid"><span class="mname">${p[1]}</span><span class="bar"><i style="width:${Math.min(100,v/60*100)}%;background:${bg}"></i></span>${rs.length?`<span class="reasons">${rs.map(rsChip).join("")}</span>`:""}</span>
+     <span class="val"><b>${pct(v)}</b><small>台の実績 ${pct(p[3]*100)}</small></span></button>`}).join("")}${ps.length>lim?`<button type="button" class="more" id="more">残り${ps.length-lim}台を表示</button>`:""}</div>`;
+  const m=document.getElementById("more");if(m)m.onclick=()=>{st.showAll=true;render()};bindOpen();
+}
+function rowsB(){return D.byno.map(B).filter(r=>r.s===st.store&&(st.machine==="__all"||r.m===st.machine))}
+function renderRank(){
+  const k=st.day;renderChips(D.byno.filter(r=>r[0]===st.store).map(r=>r[2]));legend(DAYLABEL[k]+"の投入率");
+  const pool=D.byno.map(B).filter(r=>r.s===st.store);const H=pool.reduce((a,r)=>a+cnt(r,k)[0],0),N=pool.reduce((a,r)=>a+cnt(r,k)[1],0);const prior=N?H/N:.15,A=8;const sc=r=>{const c=cnt(r,k);return(c[0]+A*prior)/(c[1]+A)};
+  const rs=rowsB().sort((a,b)=>sc(b)-sc(a));const lim=st.showAll?rs.length:20;
+  document.getElementById("view").innerHTML=`<div class="list">${rs.slice(0,lim).map((r,i)=>{const v=r[k],c=cnt(r,k),[bg]=heat(v);const few=c[1]<MIN_N[k];
+    return `<button type="button" class="row" data-no="${r.no}" data-m="${r.m}"><span class="rank">${i+1}</span><span class="no">${r.no}</span><span class="mid"><span class="mname">${r.m}</span><span class="bar"><i style="width:${Math.min(100,(v||0)/60*100)}%;background:${bg}"></i></span></span><span class="val"><b>${pct(v)}</b><small>${c[0]}回/${c[1]}日${few?'<span class="few">少</span>':""}</small></span></button>`}).join("")}${rs.length>lim?`<button type="button" class="more" id="more">残り${rs.length-lim}台を表示</button>`:""}</div><p class="note" style="margin-top:8px">並び順は、判定できた日が少ない台の数字を店全体の平均に寄せて割り引いたうえでの順番です。</p>`;
+  const m=document.getElementById("more");if(m)m.onclick=()=>{st.showAll=true;render()};bindOpen();
+}
+function renderMap(){
+  const k=st.day;renderChips(D.byno.filter(r=>r[0]===st.store).map(r=>r[2]));legend(DAYLABEL[k]+"の投入率");
+  const rs=rowsB().sort((a,b)=>a.no-b.no);const g={};rs.forEach(r=>{(g[r.m]=g[r.m]||[]).push(r)});const isl=[];
+  Object.entries(g).forEach(([m,a])=>{let cur=[];a.forEach(r=>{if(cur.length&&r.no!==cur[cur.length-1].no+1){isl.push([m,cur]);cur=[]}cur.push(r)});if(cur.length)isl.push([m,cur])});isl.sort((x,y)=>x[1][0].no-y[1][0].no);
+  const pm=new Map(S().preds.map(p=>[p[0]+"|"+p[1],p[2]]));
+  document.getElementById("view").innerHTML=`<div class="islands">${isl.map(([m,a])=>{const hs=a.reduce((s,r)=>s+cnt(r,k)[0],0),ns=a.reduce((s,r)=>s+cnt(r,k)[1],0);
+   return `<div class="island"><h3>${m}<span>${a[0].no}〜${a[a.length-1].no}・島平均 ${ns?Math.round(hs/ns*100)+"%":"–"}</span></h3><div class="tiles">${a.map(r=>{const v=r[k],c=cnt(r,k),[bg,ink]=heat(v);const few=c[1]<MIN_N[k];return `<button type="button" class="tile${few?" na":""}" style="background:${bg};color:${ink}" data-no="${r.no}" data-m="${r.m}" aria-label="${r.no}番 ${pct(v)}"><span class="tn">${r.no}</span><span class="tv">${pct(v)}</span></button>`}).join("")}</div></div>`}).join("")}</div><p class="note" style="margin-top:8px">薄く表示している台は、判定できた日が少ない台です。</p>`;bindOpen();
+}
+function renderCheck(){
+  document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";
+  const s=S(),b=s.bt;if(!b.days||!s.yday){document.getElementById("view").innerHTML=`<div class="err">検証はデータが1か月ほどたまってから表示されます（今は${D.byno.filter(r=>r[0]===st.store).length}台・${(D.byno.find(r=>r[0]===st.store)||[])[15]||""}）。</div>`;return}const r10=b.h10/b.n10,rb=b.hb10/b.nb10,ra=b.hd/b.nd;
+  const W2=320,H2=110,bw=W2/b.hist.length;
+  const bars=b.hist.map((h,i)=>{const x=i*bw;const y=H2-14-(h[1]/10)*(H2-24);const ya=H2-14-(h[3]/h[4])*(H2-24);return `<rect x="${x+1}" y="${y}" width="${bw-2}" height="${H2-14-y}" rx="1.5" fill="var(--heat3)"/><rect x="${x+1}" y="${ya-1}" width="${bw-2}" height="2" fill="var(--ink)"/>`}).join("");
+  const lab=[0,Math.floor(b.hist.length/2),b.hist.length-1].map((i,j)=>`<text x="${j===0?0:j===2?W2:i*bw+bw/2}" y="${H2-2}" text-anchor="${j===0?"start":j===2?"end":"middle"}">${+b.hist[i][0].slice(4,6)}/${+b.hist[i][0].slice(6)}</text>`).join("");
+  const grid=[0,5,10].map(v=>{const y=H2-14-(v/10)*(H2-24);return `<line x1="0" x2="${W2}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${W2-2}" y="${y-2}" text-anchor="end">${v*10}%</text>`}).join("");
+  const facRows=(arr,arr2)=>arr.map((f,i)=>{const g=arr2[i];const cls=v=>v>=1.08?"up":v<=0.92?"dn":"";return `<tr><td>${D.codes[f[0]]}</td><td class="fv ${cls(f[3])}">×${f[3].toFixed(2)}</td><td>${f[4]}</td><td class="fv ${cls(g[3])}">×${g[3].toFixed(2)}</td><td>${g[4]}</td></tr>`}).join("");
+  const y=s.yday;
+  document.getElementById("view").innerHTML=`<div class="islands">
+   <div class="card"><h2>予想の当たり具合（直近${b.days}日）</h2>
+    <div class="big3"><div><small>予想上位10台</small><b>${(r10*100).toFixed(1)}%</b></div><div><small>台の実績だけで選んだ10台</small><b>${(rb*100).toFixed(1)}%</b></div><div><small>その日の店平均</small><b>${(ra*100).toFixed(1)}%</b></div></div>
+    <p class="note" style="margin:0">毎日、その日より前のデータだけで予想を作り直し、実際に高設定だった台の割合を数えています。予想上位10台は店平均の<strong>${(r10/ra).toFixed(2)}倍</strong>でした。</p>
+    <svg class="chart" viewBox="0 0 ${W2} ${H2}" role="img" aria-label="日別の予想上位10台の的中率">${grid}${bars}${lab}</svg>
+    <p class="note" style="margin:0">棒：予想上位10台のうち高設定だった割合／横線：その日の店平均</p></div>
+   <div class="card"><h2>${fmtD(y.d)}の答え合わせ</h2><p class="note" style="margin:0">前日までのデータで作った予想上位10台（3,000G以上回った台）。色付きが高設定でした。</p>
+    <div class="yd">${y.top.map(t=>`<span class="${t[3]?"hit":""}">${t[0]}</span>`).join("")}</div><p class="note" style="margin:0">${y.top.filter(t=>t[3]).length}台/${y.top.length}台が高設定</p></div>
+   <div class="card"><h2>学習した根拠（台ごとの条件）</h2><p class="note" style="margin:0">その台の普段の投入率と比べて何倍入ったか。×1.00は効果なし。</p>
+    <table class="f"><thead><tr><th>前日の条件</th><th>通常日</th><th>件数</th><th>イベ系</th><th>件数</th></tr></thead><tbody>${facRows(s.fac.N,s.fac.ET)}</tbody></table></div>
+   <div class="card"><h2>学習した根拠（日付・曜日）</h2><table class="f"><thead><tr><th>その日の条件</th><th>通常日</th><th>件数</th><th>イベ系</th><th>件数</th></tr></thead><tbody>${facRows(s.dfac.N,s.dfac.ET)}</tbody></table></div>
+   <div class="card"><h2>データ</h2><p class="note" style="margin:0">取り込み済み ${D.rowCount.toLocaleString()}件。データが無い日：${D.missing.filter(m=>m.startsWith(st.store)).map(m=>fmtD(m.slice(2))).join("、")||"なし"}</p></div>
+  </div>`;
+}
+let accSrc="real";
+function accSum(days){let h=0,n=0,na=0;days.forEach(([d,t])=>t.forEach(q=>{if(q[3]===1){h++;n++}else if(q[3]===0)n++;else na++}));return {h,n,na}}
+function calAvg(cal){const h=cal.reduce((a,c)=>a+c[1],0),n=cal.reduce((a,c)=>a+c[2],0);return n?h/n:null}
+function accBlock(A,label,isReal){
+  const days=A.days.slice().reverse(),sm=accSum(A.days),avg=calAvg(A.cal),r10=sm.n?sm.h/sm.n:null;
+  const BIN=["10%未満","10〜20%","20〜30%","30〜40%","40%以上"];
+  const mx=Math.max(0.5,...A.cal.filter(c=>c[2]).map(c=>Math.max(c[0]/c[2],c[1]/c[2])));
+  const cal=A.cal.map((c,i)=>c[2]?`<span>${BIN[i]}</span><span class="bars"><i class="p" style="width:${c[0]/c[2]/mx*100}%"></i><i class="a" style="width:${c[1]/c[2]/mx*100}%"></i></span><span class="v">${pct(c[1]/c[2]*100)}<small> / 予想${pct(c[0]/c[2]*100)}</small><br><small>${c[2]}台</small></span>`:"").join("");
+  const W2="日月火水木金土";
+  const list=days.map(([d,t])=>{const s2=accSum([[d,t]]);const x=new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));
+    return `<div class="accday"><div class="dd">${x.getMonth()+1}/${x.getDate()}(${W2[x.getDay()]})<small>${s2.h}/${s2.n}台</small></div><div class="yd">${t.map(q=>`<span class="${q[3]===1?"hit":q[3]===0?"":"na"}" title="${q[1]} 期待度${Math.round(q[2]*100)}%">${q[0]}</span>`).join("")}</div></div>`}).join("");
+  return `<div class="card"><h2>${label}</h2>
+    <div class="big3"><div><small>予想上位10台</small><b>${r10==null?"–":pct(r10*100)}</b></div><div><small>店全体の平均</small><b>${avg==null?"–":pct(avg*100)}</b></div><div><small>店平均の何倍</small><b>${r10!=null&&avg?(r10/avg).toFixed(2)+"倍":"–"}</b></div></div>
+    <p class="note" style="margin:0">${A.days.length}日分。予想上位10台のうち、3,000G以上回って判定できた${sm.n}台中${sm.h}台が高設定でした（3,000G未満で判定できなかった台が${sm.na}台）。${isReal?"アプリがその日の朝に出した予想そのものを、翌日のデータで答え合わせしています。":"毎日、その日より前のデータだけで予想を作り直して答え合わせしたものです。"}</p></div>
+   <div class="card"><h2>期待度は当たっていたか</h2><p class="note" style="margin:0">予想した期待度ごとに、実際に高設定だった割合。2本の長さが近いほど、期待度の数字が正確です。</p>
+    <div class="lg"><span><i style="background:var(--line)"></i>予想した期待度</span><span><i style="background:var(--heat4)"></i>実際の高設定率</span></div>
+    <div class="cal">${cal}</div></div>
+   <div class="card"><h2>日ごとの答え合わせ</h2><p class="note" style="margin:0">その日の予想上位10台（左ほど期待度が高い）。<span class="yd" style="display:inline-flex"><span class="hit">色付き</span></span>＝高設定、白＝外れ、<span class="yd" style="display:inline-flex"><span class="na">点線</span></span>＝3,000G未満で判定できず。</p>${list}</div>`;
+}
+function renderAcc(){
+  document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";
+  const s=S(),A=s.acc;if(!A){document.getElementById("view").innerHTML=`<div class="err">答え合わせのデータがまだありません。Scriptableでアプリを開き直してください。</div>`;return}
+  const hasReal=A.real.days.length>0;if(!hasReal)accSrc="bt";
+  const all=Object.entries(D.stores).filter(([k,v])=>v.acc).map(([k,v])=>{const B=v.acc.bt,sm=accSum(B.days),avg=calAvg(B.cal);return [k,sm.n?sm.h/sm.n:null,avg,B.days.length]}).filter(r=>r[3]);
+  const sumCard=`<div class="card"><h2>全店のまとめ（過去30日の再現）</h2><table class="f"><thead><tr><th>店</th><th>予想上位10台</th><th>店平均</th><th>倍率</th></tr></thead><tbody>${all.map(r=>`<tr><td>${r[0]}</td><td>${r[1]==null?"–":pct(r[1]*100)}</td><td>${r[2]==null?"–":pct(r[2]*100)}</td><td class="fv ${r[1]&&r[2]&&r[1]/r[2]>=1.2?"up":""}">${r[1]&&r[2]?(r[1]/r[2]).toFixed(2)+"倍":"–"}</td></tr>`).join("")}</tbody></table><p class="note" style="margin:0">倍率が1.2倍以上の店は、予想が役に立っている店です。1倍前後の店は、台番の傾向が弱く予想が当たりにくい店です。</p></div>`;
+  const seg=`<div class="seg src" id="srcSeg"><button type="button" data-v="real" aria-pressed="${accSrc==="real"}"${hasReal?"":" disabled"}>実際の予想${hasReal?"（"+A.real.days.length+"日）":"（記録中）"}</button><button type="button" data-v="bt" aria-pressed="${accSrc==="bt"}">過去30日の再現</button></div>`;
+  const note=hasReal?"":`<p class="note" style="margin:0">アプリが出した予想の記録は${fmtD(s.target)}の分から始まりました。翌日以降、ここに実際の答え合わせがたまっていきます。それまでは過去30日の再現を表示しています。</p>`;
+  document.getElementById("view").innerHTML=`<div class="islands">${seg}${note}${accSrc==="real"?accBlock(A.real,st.store+"：アプリの予想の的中",true):accBlock(A.bt,st.store+"：過去30日の再現",false)}${sumCard}</div>`;
+  document.querySelectorAll("#srcSeg button").forEach(b=>b.onclick=()=>{if(b.disabled)return;accSrc=b.dataset.v;renderAcc()});
+}
+function bindOpen(){document.querySelectorAll("[data-no]").forEach(el=>el.onclick=()=>openSheet(+el.dataset.no,el.dataset.m))}
+function openSheet(no,m){
+  const r=D.byno.map(B).find(x=>x.s===st.store&&x.no===no&&x.m===m);const p=S().preds.find(x=>x[0]===no&&x[1]===m);if(!r)return;
+  const cells=["t","e","n","all"].map(k=>{const v=r[k],c=cnt(r,k),[bg,ink]=heat(v);return `<div class="cell" style="background:${bg};color:${ink}"><small>${DAYLABEL[k]}</small><b>${pct(v)}</b><span>${c[0]}回/${c[1]}日</span></div>`}).join("");
+  document.getElementById("sheetIn").innerHTML=`<div class="sh-head"><div><div class="no" id="shNo">${r.no}</div><div class="mname">${r.m}・${r.s}</div></div><button type="button" class="close" id="closeBtn">閉じる</button></div>
+   ${p?`<div class="card" style="padding:10px"><div style="display:flex;justify-content:space-between;align-items:baseline"><span>${fmtD(S().target)}の期待度</span><b style="font-family:var(--font-display);font-size:24px">${pct(p[2]*100)}</b></div>${p[4].length?`<div class="reasons">${p[4].map(rsChip).join("")}</div>`:""}</div>`:""}
+   <div class="grid4">${cells}</div>
+   <div class="kv"><div><span>平均推定設定</span><b>${r.es??"–"}</b></div><div><span>平均G数</span><b>${r.g.toLocaleString()}</b></div><div><span>平均差枚</span><b>${r.sa==null?"–":(r.sa>0?"+":"")+r.sa.toLocaleString()}</b></div><div><span>プラス率</span><b>${pct(r.pl)}</b></div><div><span>集計期間</span><b>${r.per}</b></div><div><span>特日</span><b>${(S().rule&&S().rule.T)||"未設定"}</b></div></div>`;
+  document.getElementById("sheet").classList.add("open");document.getElementById("sheetBg").classList.add("open");document.getElementById("closeBtn").onclick=closeSheet;document.getElementById("closeBtn").focus();
+}
+function closeSheet(){document.getElementById("sheet").classList.remove("open");document.getElementById("sheetBg").classList.remove("open")}
+document.getElementById("sheetBg").onclick=closeSheet;document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
+function render(){if(!D)return;if(!D.stores[st.store]){setPressed("storeSeg",st.store);document.getElementById("status").innerHTML="";document.getElementById("chips").hidden=true;document.getElementById("legend").innerHTML="";document.getElementById("view").innerHTML=`<div class="err">${st.store}のデータはまだありません。Scriptableでアプリを開くと取り込みます。</div>`;return}if(!st.day)st.day=dayKey();renderStatus();setPressed("storeSeg",st.store);setPressed("viewSeg",st.view);setPressed("daySeg",st.day);
+  document.getElementById("daySeg").hidden=!(st.view==="rank"||st.view==="map");
+  ({pred:renderPred,rank:renderRank,map:renderMap,acc:renderAcc,check:renderCheck})[st.view]();save();}
+document.querySelectorAll("#storeSeg button").forEach(b=>b.onclick=()=>{st.store=b.dataset.v;st.day=D&&D.stores[st.store]?dayKey():null;st.machine="__all";st.showAll=false;render()});
+document.querySelectorAll("#viewSeg button").forEach(b=>b.onclick=()=>{st.view=b.dataset.v;st.showAll=false;render()});
+document.querySelectorAll("#daySeg button").forEach(b=>b.onclick=()=>{st.day=b.dataset.v;st.showAll=false;render()});
+fetch("predict.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(j=>{D=j;st.day=null;render()}).catch(e=>{document.getElementById("view").innerHTML=e.message==="503"?`<div class="err">まだ予想データがありません。初回の取り込み（数分）が終わってから再読み込みしてください。</div>`:`<div class="err">予想データを読み込めませんでした（${e.message}）。ページを再読み込みしてください。</div>`});
+</script>
+</body>
+</html>

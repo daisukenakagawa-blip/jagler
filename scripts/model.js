@@ -1,6 +1,7 @@
 // 予測エンジン（ペカセンの台データ → 台番別の高設定期待度・検証）
 // rows: [{s,d,m,no,g,b,r,sa}]  meta: {missing:[...]}  today: 'YYYYMMDD'（日本時間）
-export function runModel(rows, meta, today){
+// plog: アプリが実際に出した予想の記録 {店: {対象日: [[台番, 機種, 期待度], ...]}}（答え合わせ用）
+export function runModel(rows, meta, today, plog){
 const HALF=45, K=6, K2=15, BT=30;
 const STORES=[['本館'],['新館'],['新橋UNO'],['セブンS川崎'],['ゴードン祖師谷'],['マルハン新宿東宝'],['楽園川崎']];
 const SP={'マイジャグラーV':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'マイジャグラー6':[[273.1,270.8,266.4,254.0,240.1,229.1],[409.6,385.5,336.1,290.0,268.6,229.1]],'ネオアイムジャグラーEX':[[273.1,269.7,269.7,259.0,259.0,255.0],[439.8,399.6,331.0,315.1,255.0,255.0]],'アイムジャグラーEX':[[273.1,269.7,269.7,259.0,259.0,255.0],[439.8,399.6,331.0,315.1,255.0,255.0]],'ゴーゴージャグラー3':[[259.0,258.0,257.0,254.0,247.3,234.9],[354.2,332.7,306.2,268.6,247.3,234.9]],'ファンキージャグラー2':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ファンキージャグラー2KT':[[266.4,259.0,256.0,249.2,240.9,219.9],[439.8,407.1,366.1,322.8,299.3,262.1]],'ジャグラーガールズSS':[[273.1,270.8,260.1,250.1,243.6,226.0],[381.0,350.5,316.6,281.3,270.8,252.1]],'ウルトラミラクルジャグラー':[[267.5,261.1,256.0,242.7,233.2,216.3],[425.6,402.1,350.5,322.8,297.9,284.9]],'ハッピージャグラーVIII':[[273.1,270.8,263.2,254.0,239.2,226.0],[397.2,362.1,332.7,300.6,273.1,256.0]],'ミスタージャグラー':[[268.6,267.5,260.1,249.2,240.9,237.4],[374.5,354.2,331.0,291.3,257.0,237.4]]};
@@ -55,13 +56,25 @@ for(const [s] of STORES){if(!latest[s])continue;const S=rows.filter(x=>x.s===s);
  const byDay=grp(S,x=>x.d);
  // backtest
  const hist=[];let H10=0,N10=0,HB=0,NB=0,HD=0,ND=0,HBase10=0,NBase10=0;
+ // 答え合わせ用：期待度の帯ごとの [予想の合計, 当たり, 判定できた台数] と、日ごとの上位10台の結果（1=高設定 0=外れ -1=3000G未満で判定不能）
+ const binOf=p=>p<0.1?0:p<0.2?1:p<0.3?2:p<0.4?3:4;const newCal=()=>[0,1,2,3,4].map(()=>[0,0,0]);
+ const addCal=(cal,p,x)=>{if(!x.ok)return;const c=cal[binOf(p)];c[0]+=p;c[1]+=x.hi?1:0;c[2]++};
+ const stOf=x=>!x?-2:x.ok?(x.hi?1:0):-1;
+ const btCal=newCal(),btDays=[];
  for(const d of days.slice(-BT)){const cut=+dt(d);const tr=S.filter(x=>x.t<cut);if(tr.length<2000)continue;const mdl=train(tr,cut);
   const dayRows=byDay.get(d).filter(x=>!x.unk);const prevD=addD(d,-1);const pmap=byDay.has(prevD)?new Map(byDay.get(prevD).map(y=>[y.key,y])):null;
-  const pr=predict(mdl,s,dayRows,d,pmap).filter(o=>o.x.ok);const okN=pr.length,okH=pr.filter(o=>o.x.hi).length;
+  const prAll=predict(mdl,s,dayRows,d,pmap);prAll.forEach(o=>addCal(btCal,o.p,o.x));
+  btDays.push([d,prAll.slice().sort((a,b)=>b.p-a.p).slice(0,10).map(o=>[o.x.no,o.x.m,+o.p.toFixed(3),stOf(o.x)])]);
+  const pr=prAll.filter(o=>o.x.ok);const okN=pr.length,okH=pr.filter(o=>o.x.hi).length;
   const top=pr.slice().sort((a,b)=>b.p-a.p).slice(0,10),topB=pr.slice().sort((a,b)=>b.b-a.b).slice(0,10);
   const h10=top.filter(o=>o.x.hi).length,hb10=topB.filter(o=>o.x.hi).length;H10+=h10;N10+=top.length;HBase10+=hb10;NBase10+=topB.length;HD+=okH;ND+=okN;
   hist.push([d,h10,top.length,okH,okN,hb10]);
   if(d===days[days.length-1])out.stores[s]={yday:{d,top:top.map(o=>[o.x.no,o.x.m,+o.p.toFixed(3),o.x.hi?1:0])}};}
+ // 実際に出した予想の答え合わせ
+ const rCal=newCal(),rDays=[];const PL=(plog&&plog[s])||{};
+ for(const d of Object.keys(PL).sort()){if(!byDay.has(d))continue;const km=new Map(byDay.get(d).map(y=>[y.no+'|'+y.m,y]));
+  PL[d].forEach(q=>{const x=km.get(q[0]+'|'+q[1]);if(x)addCal(rCal,q[2],x)});
+  rDays.push([d,PL[d].slice(0,10).map(q=>[q[0],q[1],q[2],stOf(km.get(q[0]+'|'+q[1]))])]);}
  // forecast
  const L=days[days.length-1];let target=addD(L,1);if(target<today)target=today;const prevDay=target===addD(L,1)?new Map(byDay.get(L).map(y=>[y.key,y])):null;
  const cut=+dt(target);const mdl=train(S,cut);const cands=byDay.get(L).filter(x=>!x.unk);
@@ -71,6 +84,7 @@ for(const [s] of STORES){if(!latest[s])continue;const S=rows.filter(x=>x.s===s);
  Object.assign(out.stores[s]=out.stores[s]||{},{rule:s==='本館'?{T:'21・25日',E:'1・7・11・21・22・25日、ゾロ目、第1土曜'}:s==='新館'?{T:'4のつく日・ゾロ目',E:'4・7のつく日、ゾロ目'}:(RULES[s]?RULES[s].txt:null),target,typ:e.typ,why:e.why,wd:e.wd,prevOk:!!prevDay,lastData:L,
   preds:pr.map(o=>[o.x.no,o.x.m,+o.p.toFixed(3),+o.b.toFixed(3),o.rs]),
   bt:{days:hist.length,h10:H10,n10:N10,hb10:HBase10,nb10:NBase10,hd:HD,nd:ND,hist},
+  acc:{real:{days:rDays,cal:rCal.map(c=>[+c[0].toFixed(2),c[1],c[2]])},bt:{days:btDays,cal:btCal.map(c=>[+c[0].toFixed(2),c[1],c[2]])}},
   fac:{N:facs('N'),ET:facs('ET')},dfac:{N:dfacs('N'),ET:dfacs('ET')}});
  // byno stats (current machines)
  const cur=new Set(cands.map(x=>x.key));for(const [key,a] of grp(S.filter(x=>cur.has(x.key)),x=>x.key)){const x0=a[0];const st=f=>{const o=a.filter(y=>y.ok&&f(y));return [o.filter(y=>y.hi).length,o.length]};

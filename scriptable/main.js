@@ -168,7 +168,15 @@ async function main() {
   let out = await readJson('predict.json', null);
   if (rows.length && (added || dropped || !out || out.today !== today)) {
     const objs = rows.map(r => ({ s: r[0], d: r[1], m: r[2], no: r[3], g: r[4], b: r[5], r: r[6], sa: r[7] }));
-    out = runModel(objs, meta, today);
+    // アプリが出した予想を記録しておき、データが入った日に答え合わせする（60日分）
+    const plog = await readJson('predlog.json', {});
+    out = runModel(objs, meta, today, plog);
+    for (const [sn, S] of Object.entries(out.stores)) {
+      if (!S.preds || !(S.target > S.lastData)) continue;
+      (plog[sn] = plog[sn] || {})[S.target] = S.preds.map(p => [p[0], p[1], p[2]]);
+      for (const d of Object.keys(plog[sn])) if (d < addDay(today, -60)) delete plog[sn][d];
+    }
+    fm.writeString(P('predlog.json'), JSON.stringify(plog));
     out.today = today;
     out.log = log.slice(-20);
     fm.writeString(P('predict.json'), JSON.stringify(out));
