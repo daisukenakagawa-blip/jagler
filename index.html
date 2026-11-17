@@ -140,7 +140,7 @@ table.f th{font-size:11.5px;color:var(--muted);font-weight:700}
 .accday .dd{font-family:var(--font-display);font-size:13px;font-weight:700;line-height:1.3}
 .accday .dd small{display:block;color:var(--muted);font-weight:400;font-size:11.5px}
 .accday .yd span{font-size:12.5px;padding:2px 6px}
-.cal{display:grid;grid-template-columns:72px 1fr 64px;gap:4px 8px;align-items:center;font-size:12.5px}
+.cal{display:grid;grid-template-columns:64px 1fr 92px;gap:4px 8px;align-items:center;font-size:12.5px}
 .cal .bars{display:flex;flex-direction:column;gap:3px}
 .cal .bars i{display:block;height:9px;border-radius:3px;min-width:2px}
 .cal .bars i.p{background:var(--line)}.cal .bars i.a{background:var(--heat4)}
@@ -287,7 +287,7 @@ function accBlock(A,label,isReal){
   const days=A.days.slice().reverse(),sm=accSum(A.days),avg=calAvg(A.cal),r10=sm.n?sm.h/sm.n:null;
   const BIN=["10%未満","10〜20%","20〜30%","30〜40%","40%以上"];
   const mx=Math.max(0.5,...A.cal.filter(c=>c[2]).map(c=>Math.max(c[0]/c[2],c[1]/c[2])));
-  const cal=A.cal.map((c,i)=>c[2]?`<span>${BIN[i]}</span><span class="bars"><i class="p" style="width:${c[0]/c[2]/mx*100}%"></i><i class="a" style="width:${c[1]/c[2]/mx*100}%"></i></span><span class="v">${pct(c[1]/c[2]*100)}<small> / 予想${pct(c[0]/c[2]*100)}</small><br><small>${c[2]}台</small></span>`:"").join("");
+  const cal=A.cal.map((c,i)=>c[2]?`<span>${BIN[i]}</span><span class="bars"><i class="p" style="width:${c[0]/c[2]/mx*100}%"></i><i class="a" style="width:${c[1]/c[2]/mx*100}%"></i></span><span class="v">実際 ${pct(c[1]/c[2]*100)}<br><small>予想${pct(c[0]/c[2]*100)}・${c[2]}台</small></span>`:"").join("");
   const W2="日月火水木金土";
   const list=days.map(([d,t])=>{const s2=accSum([[d,t]]);const x=new Date(+d.slice(0,4),+d.slice(4,6)-1,+d.slice(6));
     return `<div class="accday"><div class="dd">${x.getMonth()+1}/${x.getDate()}(${W2[x.getDay()]})<small>${s2.h}/${s2.n}台</small></div><div class="yd">${t.map(q=>`<span class="${q[3]===1?"hit":q[3]===0?"":"na"}" title="${q[1]} 期待度${Math.round(q[2]*100)}%">${q[0]}</span>`).join("")}</div></div>`}).join("");
